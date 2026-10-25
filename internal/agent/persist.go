@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"fmt"
+
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/app"
 	"openbin.ai/binny/internal/llm"
@@ -91,7 +93,7 @@ func RestoreEngine(sess *app.Session, client *api.Client, st EngineState) (*Engi
 	reg := tools.NewRegistry()
 	tb := tools.NewToolbox(client, sess.Project)
 	tb.RegisterRead(reg)
-	registerOutputTools(reg, inv, client, sess.Project)
+	registerOutputTools(reg, inv, client, sess.Project, sess.Mode)
 	registerExtractionTools(reg, inv, sess)
 	registerSampleTools(reg, sess, tb)
 	if st.Sample != nil {
@@ -110,6 +112,7 @@ func RestoreEngine(sess *app.Session, client *api.Client, st EngineState) (*Engi
 
 	e := NewEngine(sess, inv, reg, provider)
 	e.tb = tb
+	tb.Progress = func(format string, args ...any) { e.StreamLine(fmt.Sprintf(format, args...)) }
 	e.messages = st.Messages
 	e.stage = stage(st.Stage)
 	e.rounds = st.Rounds
@@ -130,7 +133,7 @@ func RestoreEngine(sess *app.Session, client *api.Client, st EngineState) (*Engi
 	// Re-derive playbooks (never serialized) — objectives + coverage already live
 	// in the restored investigation, so do NOT reload them.
 	if sess.Mode == app.ModeVuln {
-		e.pbs = []playbook.Playbook{playbook.VulnPlaybookFor(string(sess.Project.Kind))}
+		e.pbs = []playbook.Playbook{vulnPlaybookForSession(sess)}
 	} else if len(inv.MalwareTypes) > 0 {
 		e.pbs = playbook.SelectByTypes(inv.MalwareTypes)
 	}

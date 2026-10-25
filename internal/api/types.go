@@ -98,6 +98,77 @@ type FileContent struct {
 	Content   string `json:"content"`
 }
 
+// SourceBundle mirrors projects/dto/SourceBundleResponse.java.
+type SourceBundle struct {
+	URL             string `json:"url"`
+	CompressedBytes int64  `json:"compressedBytes"`
+	ETag            string `json:"etag"`
+}
+
+// SearchHit mirrors search/dto/SearchHit.java.
+type SearchHit struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Snippet string `json:"snippet"`
+}
+
+// Manifest mirrors manifest/dto/AndroidManifestInfo.java.
+type Manifest struct {
+	PackageName        string              `json:"packageName"`
+	VersionCode        *int                `json:"versionCode"`
+	VersionName        string              `json:"versionName"`
+	MinSdk             *int                `json:"minSdk"`
+	TargetSdk          *int                `json:"targetSdk"`
+	Permissions        []string            `json:"permissions"`
+	DefinedPermissions []string            `json:"definedPermissions"`
+	Application        *ManifestComponent  `json:"application"`
+	Activities         []ManifestComponent `json:"activities"`
+	Services           []ManifestComponent `json:"services"`
+	Receivers          []ManifestComponent `json:"receivers"`
+	Providers          []ManifestComponent `json:"providers"`
+}
+
+// ManifestComponent mirrors manifest/dto/ManifestComponent.java.
+type ManifestComponent struct {
+	Kind          string         `json:"kind"`
+	ClassName     string         `json:"className"`
+	Exported      bool           `json:"exported"`
+	Enabled       bool           `json:"enabled"`
+	Permission    string         `json:"permission"`
+	IntentFilters []IntentFilter `json:"intentFilters"`
+	Authorities   []string       `json:"authorities"`
+	File          string         `json:"file"` // "" when the class isn't in the decompiled tree
+	Line          *int           `json:"line"`
+}
+
+// IntentFilter mirrors manifest/dto/IntentFilter.java.
+type IntentFilter struct {
+	Actions     []string `json:"actions"`
+	Categories  []string `json:"categories"`
+	DataSchemes []string `json:"dataSchemes"`
+	Priority    *int     `json:"priority"`
+}
+
+// JavaSymbol mirrors symbols/dto/Symbol.java (a declaration in decompiled
+// APK source — not the binary blob's named-address Symbol below).
+type JavaSymbol struct {
+	Kind      string `json:"kind"` // CLASS|INTERFACE|ENUM|METHOD|FIELD|…
+	Name      string `json:"name"`
+	ClassName string `json:"className"`
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+	Signature string `json:"signature"`
+	Modifiers string `json:"modifiers"`
+	Pkg       string `json:"pkg"`
+}
+
+// SymbolUsage mirrors symbols/dto/SymbolUsage.java.
+type SymbolUsage struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Snippet string `json:"snippet"`
+}
+
 // --- Binary analysis blob (Ghidra worker output; snake_case) --------------
 
 // Analysis is the top-level binary-analysis JSON. `strings` and `imports` are

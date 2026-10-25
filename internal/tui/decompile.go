@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,7 +24,8 @@ import (
 // The local-decompile flow: BINNY runs the same ghidra-worker Docker image the
 // openbin CLI uses, entirely on this machine, and keeps the result in the
 // local analysis store — no backend project, no AWS cost. Reached from the
-// start menu ("Decompile a local binary") or /decompile in the REPL.
+// start menu ("Decompile a local binary or APK") or /decompile in the REPL.
+// APKs branch off to the JADX flow in apk.go.
 
 // decompLogMsg is one progress line pushed from the background decompile.
 type decompLogMsg struct{ line string }
@@ -69,6 +71,12 @@ func decompileLocally(ctx context.Context, path, processor string, logf ghidra.L
 	abs, err := filepath.Abs(path)
 	if err == nil {
 		path = abs
+	}
+	if isAndroidPackage(path) {
+		// A zip, so archdetect would call it a raw image and send it down the
+		// firmware path. APKs go to JADX instead of Ghidra.
+		meta, err := decompileAPKLocally(ctx, path, info.Size(), logf)
+		return meta, "", err
 	}
 
 	logf("Hashing %s (%.1f MB)…", filepath.Base(path), float64(info.Size())/(1024*1024))
@@ -173,6 +181,20 @@ func rawIdentify(ctx context.Context, path string, logf ghidra.Logf) string {
 
 // localProject synthesizes the api.Project a stored local analysis attaches as.
 func localProject(meta store.Meta) *api.Project {
+	if meta.Kind == store.KindAPK {
+		return &api.Project{
+			ID:               store.LocalID(meta.Sha256),
+			Kind:             api.KindAPK,
+			Name:             meta.Name,
+			OriginalFilename: meta.Name,
+			SizeBytes:        meta.SizeBytes,
+			Sha256:           meta.Sha256,
+			Status:           "READY",
+			AnalysisMode:     "MALWARE",
+			PackageName:      meta.PackageName,
+			CreatedAt:        meta.CreatedAt,
+		}
+	}
 	arch := meta.Processor
 	if arch == "" {
 		arch = meta.Language
@@ -262,13 +284,13 @@ func (m *Model) appendDecompLog(s string) {
 func (m *Model) viewDecompile() string {
 	var b strings.Builder
 	b.WriteString(banner() + "\n\n")
-	b.WriteString(styleHeader.Render("Decompile a local binary") + "\n")
-	b.WriteString(styleDim.Render("Runs Ghidra headless locally (Docker) and keeps the analysis on this machine — no upload, no cloud cost.") + "\n\n")
+	b.WriteString(styleHeader.Render("Decompile a local binary or APK") + "\n")
+	b.WriteString(styleDim.Render("Runs Ghidra (binaries) or JADX (.apk/.xapk) headless locally in Docker and keeps the result on this machine — no upload, no cloud cost.") + "\n\n")
 
 	if m.decompiling {
 		b.WriteString(m.spinner.View() + styleDim.Render(" decompiling… (Esc to cancel)") + "\n\n")
 	} else {
-		b.WriteString(styleDim.Render("Path to the binary — add a Ghidra processor ID for raw firmware, e.g.") + "\n")
+		b.WriteString(styleDim.Render("Path to the binary or APK — add a Ghidra processor ID for raw firmware, e.g.") + "\n")
 		b.WriteString(styleDim.Render("  ~/samples/router.bin ARM:LE:32:v7") + "\n\n")
 		b.WriteString(m.decompInput.View() + "\n")
 		b.WriteString(styleDim.Render("enter run · esc back") + "\n\n")
@@ -319,6 +341,11 @@ func (m *Model) handleDecompDone(msg decompDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.attachLocal(msg.meta)
+	if msg.meta.Kind == store.KindAPK {
+		m.append(okLine(fmt.Sprintf("Attached local APK project %q (%s). The decompiled source is served from disk — type intel then /investigate, or /ask. /upload also creates it as an OpenAPK project.",
+			msg.meta.Name, orDefault(msg.meta.PackageName, "unknown package"))))
+		return m, nil
+	}
 	m.append(okLine(fmt.Sprintf("Attached local project %q (%s). Analysis is served from disk — type intel then /investigate, or /ask.",
 		msg.meta.Name, orDefault(msg.meta.Language, "unknown language"))))
 	return m, nil
@@ -328,8 +355,8 @@ func (m *Model) handleDecompDone(msg decompDoneMsg) (tea.Model, tea.Cmd) {
 func (m *Model) cmdDecompile(rest string) tea.Cmd {
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
-		m.append(sysLine("Usage: /decompile <path> [ghidra-processor-id]   e.g. /decompile ~/fw.bin MIPS:BE:32:default"))
-		m.append(sysLine("Decompiles locally with Ghidra (Docker) and stores the analysis on disk — no upload, no cloud cost."))
+		m.append(sysLine("Usage: /decompile <path> [ghidra-processor-id]   e.g. /decompile ~/fw.bin MIPS:BE:32:default  ·  /decompile ~/app.apk"))
+		m.append(sysLine("Decompiles locally (Ghidra for binaries, JADX for .apk/.xapk; Docker) and keeps the result on disk — no upload, no cloud cost."))
 		return nil
 	}
 	if m.decompiling {
@@ -390,4 +417,24 @@ func sha256FileTUI(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// isAndroidPackage reports whether path is an APK-family file: by extension,
+// or a zip carrying AndroidManifest.xml (a renamed or extensionless sample).
+func isAndroidPackage(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".apk", ".xapk", ".apks", ".aab":
+		return true
+	}
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return false
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		if f.Name == "AndroidManifest.xml" || f.Name == "base/manifest/AndroidManifest.xml" {
+			return true
+		}
+	}
+	return false
 }

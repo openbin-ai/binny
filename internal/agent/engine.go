@@ -138,7 +138,7 @@ type StepResult struct {
 func NewEngine(sess *app.Session, inv *Investigation, reg *tools.Registry, provider llm.Provider) *Engine {
 	e := &Engine{
 		sess: sess, inv: inv, reg: reg, provider: provider,
-		system:           systemPrompt(sess.Mode, sess.Autonomy, sess.SamplePath != ""),
+		system:           systemPrompt(sess.Mode, sess.Autonomy, sess.SamplePath != "", sess.Project.Kind),
 		briefed:          map[stage]bool{},
 		maxTokens:        sess.TokenBudget(), // per-project budget (Settings), default 120k
 		perTurnMax:       4096,
@@ -236,7 +236,7 @@ func (e *Engine) Phase() app.Phase {
 func (e *Engine) Start() []Line {
 	e.messages = []llm.Message{llm.UserText(triageKickoff(e.sess, nil))}
 	if e.sess.Mode == app.ModeVuln {
-		e.pbs = []playbook.Playbook{playbook.VulnPlaybookFor(string(e.sess.Project.Kind))}
+		e.pbs = []playbook.Playbook{e.vulnPlaybook()}
 		e.loadObjectives()
 		e.stage = stageInvestigate
 		return []Line{{Kind: "phase", Text: "TRIAGE skipped (vuln mode) — loaded playbook: " + e.pbs[0].Name}}
@@ -267,7 +267,7 @@ func (e *Engine) StartFromReport(report *api.Report) []Line {
 	// Re-derive playbooks so write_report_section knows the section template if
 	// BINNY extends the report; harmless if the classification doesn't map.
 	if e.sess.Mode == app.ModeVuln {
-		e.pbs = []playbook.Playbook{playbook.VulnPlaybookFor(string(e.sess.Project.Kind))}
+		e.pbs = []playbook.Playbook{e.vulnPlaybook()}
 	} else if len(e.inv.MalwareTypes) > 0 {
 		e.pbs = playbook.SelectByTypes(e.inv.MalwareTypes)
 	}
@@ -311,7 +311,7 @@ func (e *Engine) StartQA(report *api.Report) []Line {
 	// Derive playbooks so write_report_section knows the section template if the
 	// analyst later asks BINNY to record something; harmless otherwise.
 	if e.sess.Mode == app.ModeVuln {
-		e.pbs = []playbook.Playbook{playbook.VulnPlaybookFor(string(e.sess.Project.Kind))}
+		e.pbs = []playbook.Playbook{e.vulnPlaybook()}
 	} else if len(e.inv.MalwareTypes) > 0 {
 		e.pbs = playbook.SelectByTypes(e.inv.MalwareTypes)
 	}
@@ -645,7 +645,7 @@ func (e *Engine) ensureBrief() []Line {
 		if len(e.pbs) == 0 { // safety: no playbook yet
 			return nil
 		}
-		e.appendUser(investigateBrief(e.pbs, e.inv.Snapshot().Objectives))
+		e.appendUser(investigateBrief(e.pbs, e.inv.Snapshot().Objectives, e.sess.Project.Kind, e.sess.Mode, e.sess.VulnFocus))
 	case stageSynthesize:
 		brief := synthesizeBrief(e.sess.Mode, e.pbs, e.inv.Snapshot())
 		if e.reportPrefs != "" {
@@ -694,6 +694,20 @@ func (e *Engine) advanceStage() []Line {
 		return nil
 	}
 	return nil
+}
+
+// vulnPlaybook returns the session's vuln playbook — scoped to the focused
+// classes when /focus (or /mode vuln <class>) set any, else the generic one.
+func (e *Engine) vulnPlaybook() playbook.Playbook { return vulnPlaybookForSession(e.sess) }
+
+// vulnPlaybookForSession is the free-function form (used from RestoreEngine).
+func vulnPlaybookForSession(sess *app.Session) playbook.Playbook {
+	kind := string(sess.Project.Kind)
+	if len(sess.VulnFocus) > 0 {
+		pb, _ := playbook.VulnPlaybookForFocus(kind, sess.VulnFocus)
+		return pb
+	}
+	return playbook.VulnPlaybookFor(kind)
 }
 
 func (e *Engine) loadObjectives() {

@@ -73,6 +73,7 @@ type Model struct {
 	decompErr    string
 	decompiling  bool
 	decompCancel context.CancelFunc
+	uploading    bool // /upload of a local APK project in flight
 
 	// resume prompt
 	pendingResume *resume.State
@@ -246,6 +247,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case decompDoneMsg:
 		return m.handleDecompDone(msg)
 
+	case uploadLogMsg:
+		m.append(sysLine("[upload] " + msg.line))
+		return m, nil
+
+	case uploadDoneMsg:
+		m.handleUploadDone(msg)
+		return m, nil
+
+	case treeCacheMsg:
+		m.append(sysLine("[cache] " + msg.line))
+		return m, nil
+
 	case samplesMsg:
 		return m.handleSamplesMsg(msg)
 
@@ -348,24 +361,27 @@ func (m *Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Local project: re-attach the sample if it's still on disk.
 			m.attachLocal(meta)
 		}
+		// Backend APK project: start pulling its source tree now, while the
+		// analyst picks options — reads are then served from disk.
+		prefetch := m.prefetchTree(p)
 		// A saved BINNY session takes priority — offer to resume it first.
 		if st, ok, err := resume.Load(p.ID); err == nil && ok {
 			m.pendingResume = st
 			m.resumeCursor = 0
 			m.screen = screenResume
-			return m, nil
+			return m, prefetch
 		}
 		// Local projects have no backend report to continue — straight to run mode.
 		if p.IsLocal() {
 			m.openAutonomy()
-			return m, nil
+			return m, prefetch
 		}
 		// Otherwise check the backend for an existing report to continue.
 		m.pendingReport = nil
 		m.continueCursor = 0
 		m.reportChecking = true
 		m.screen = screenContinue
-		return m, m.fetchReportCmd(p.ID)
+		return m, tea.Batch(prefetch, m.fetchReportCmd(p.ID))
 	}
 	return m, nil
 }
@@ -406,7 +422,7 @@ func (m *Model) viewPicker() string {
 		b.WriteString(styleWarn.Render("Backend unreachable ("+truncate(m.loadErr.Error(), 60)+") — showing local analyses only.") + "\n\n")
 	}
 	if len(m.projects) == 0 {
-		b.WriteString(styleDim.Render("No projects yet. Decompile something with the openbin CLI, or use \"Decompile a local binary\" from the start menu.") + "\n")
+		b.WriteString(styleDim.Render("No projects yet. Decompile something with the openbin CLI, or use \"Decompile a local binary or APK\" from the start menu.") + "\n")
 		return b.String()
 	}
 	for i, p := range m.projects {
@@ -654,6 +670,8 @@ func (m *Model) submitSlash(val string) (tea.Model, tea.Cmd) {
 	case "/decompile":
 		return m, tea.Batch(m.spinner.Tick,
 			m.cmdDecompile(strings.TrimSpace(strings.TrimPrefix(val, fields[0]))))
+	case "/upload":
+		return m, m.cmdUpload()
 	case "/samples":
 		return m, m.cmdSamples()
 	case "/switch", "/use":
@@ -663,10 +681,11 @@ func (m *Model) submitSlash(val string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/refresh":
 		if m.sess.Project == nil || m.sess.Project.IsLocal() {
-			m.append(sysLine("Nothing to refresh — /refresh drops the on-disk cache of a BACKEND project's analysis blob."))
+			m.append(sysLine("Nothing to refresh — /refresh drops the on-disk cache of a BACKEND project's analysis blob or source tree."))
 			return m, nil
 		}
 		store.DropRemote(m.sess.Project.ID)
+		store.DropRemoteTree(m.sess.Project.ID) // APK: the cached source tree
 		if m.sess.Sample != nil {
 			store.DropRemote(m.sess.Project.ID + ":" + m.sess.Sample.ID)
 		}

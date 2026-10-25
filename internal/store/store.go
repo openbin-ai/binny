@@ -4,10 +4,13 @@
 //
 // Layout under $XDG_DATA_HOME/binny/ (~/.local/share/binny/):
 //
-//	analyses/<sha256>/analysis.json.gz  — raw worker JSON, gzipped
+//	analyses/<sha256>/analysis.json.gz  — raw worker JSON, gzipped (BIN)
+//	analyses/<sha256>/tree.tar.gz       — JADX output as returned by the worker (APK)
+//	analyses/<sha256>/src/              — that tree, extracted (APK)
 //	analyses/<sha256>/meta.json         — Meta (name, sample path, language…)
 //	analyses/<sha256>/report.md         — /save target for local projects
 //	analyses/remote/<projectID>.json.gz — read-through cache of backend blobs
+//	analyses/remote-trees/<projectID>/  — cached source tree of a backend APK project (src/ + etag)
 //	workspaces/<name>/                  — persistent extraction workspaces
 package store
 
@@ -27,6 +30,7 @@ import (
 // Meta describes one locally-decompiled sample.
 type Meta struct {
 	Sha256     string `json:"sha256"`
+	Kind       string `json:"kind,omitempty"` // "APK" for a JADX tree; "" = BIN (Ghidra analysis)
 	Name       string `json:"name"`
 	SamplePath string `json:"samplePath"`
 	SizeBytes  int64  `json:"sizeBytes"`
@@ -34,7 +38,13 @@ type Meta struct {
 	Format     string `json:"format,omitempty"`    // executable format the worker reported
 	Processor  string `json:"processor,omitempty"` // forced processor, if any
 	CreatedAt  string `json:"createdAt"`
+
+	PackageName string `json:"packageName,omitempty"` // APK: manifest package
+	ProjectID   string `json:"projectId,omitempty"`   // APK: OpenAPK project after /upload
 }
+
+// KindAPK is Meta.Kind for a locally JADX-decompiled APK.
+const KindAPK = "APK"
 
 // LocalIDPrefix marks synthesized local-project IDs ("local:<sha12>").
 const LocalIDPrefix = "local:"
@@ -87,6 +97,55 @@ func Save(meta Meta, blob []byte) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "meta.json"), mj, 0o644)
+}
+
+// SaveMeta writes (or rewrites) a sample's metadata on its own — the APK path,
+// where the payload is a tree on disk rather than a blob.
+func SaveMeta(meta Meta) error {
+	dir, err := analysisDir(meta.Sha256)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if meta.CreatedAt == "" {
+		meta.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	mj, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "meta.json"), mj, 0o644)
+}
+
+// TreeTarball is where an APK's JADX tarball is kept (the exact bytes the
+// backend accepts on upload, so /upload never re-decompiles).
+func TreeTarball(sha string) (string, error) {
+	dir, err := analysisDir(sha)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "tree.tar.gz"), nil
+}
+
+// SrcDir is where an APK's JADX tree is extracted.
+func SrcDir(sha string) (string, error) {
+	dir, err := analysisDir(sha)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "src"), nil
+}
+
+// HasTree reports whether a sample hash has an extracted APK tree.
+func HasTree(sha string) bool {
+	src, err := SrcDir(sha)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(src, "sources"))
+	return err == nil
 }
 
 // Has reports whether a sample hash has a stored analysis.
@@ -200,6 +259,49 @@ func SaveRemote(projectID string, blob []byte) {
 func DropRemote(projectID string) {
 	if p, err := remotePath(projectID); err == nil {
 		_ = os.Remove(p)
+	}
+}
+
+// --- cached source trees of BACKEND APK projects -----------------------------
+
+// RemoteTreeDir is where a backend APK project's source bundle is cached:
+// <dir>/src is the extracted tree, <dir>/etag the bundle's S3 ETag.
+func RemoteTreeDir(projectID string) (string, error) {
+	root, err := Root()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "analyses", "remote-trees", sanitize(projectID)), nil
+}
+
+// RemoteTreeETag returns the ETag of the cached bundle, "" when there is no
+// complete cached tree.
+func RemoteTreeETag(projectID string) string {
+	dir, err := RemoteTreeDir(projectID)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "etag"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// SetRemoteTreeETag marks the cached tree complete for a bundle ETag. Written
+// last, after extraction, so a crash mid-extract never looks cached.
+func SetRemoteTreeETag(projectID, etag string) error {
+	dir, err := RemoteTreeDir(projectID)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "etag"), []byte(etag+"\n"), 0o644)
+}
+
+// DropRemoteTree evicts a cached tree (stale ETag, /refresh).
+func DropRemoteTree(projectID string) {
+	if dir, err := RemoteTreeDir(projectID); err == nil {
+		_ = os.RemoveAll(dir)
 	}
 }
 

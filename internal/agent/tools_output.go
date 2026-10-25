@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"openbin.ai/binny/internal/api"
+	"openbin.ai/binny/internal/app"
 	"openbin.ai/binny/internal/tools"
 )
 
@@ -17,10 +18,18 @@ const AskUserToolName = "ask_user"
 // registerOutputTools adds the Findings/Output, Highlights, and Control tools
 // to the registry. They write to the shared Investigation; record_finding and
 // add_ioc enforce evidence-grounding at write time.
-func registerOutputTools(reg *tools.Registry, inv *Investigation, client *api.Client, project *api.Project) {
-	reg.Add(recordFindingTool(inv))
-	reg.Add(addIOCTool(inv))
-	reg.Add(setClassificationTool(inv))
+//
+// Vuln mode gets the structured vuln record_finding and no IOC/classification
+// tools: those are malware-report concepts, and offering them pulls a
+// vulnerability hunt toward malware triage.
+func registerOutputTools(reg *tools.Registry, inv *Investigation, client *api.Client, project *api.Project, mode app.Mode) {
+	if mode == app.ModeVuln {
+		reg.Add(recordVulnFindingTool(inv))
+	} else {
+		reg.Add(recordFindingTool(inv))
+		reg.Add(addIOCTool(inv))
+		reg.Add(setClassificationTool(inv))
+	}
 	reg.Add(writeReportSectionTool(inv))
 	reg.Add(markObjectiveTool(inv))
 	reg.Add(highlightFunctionTool(inv, client, project))
@@ -31,13 +40,13 @@ func registerOutputTools(reg *tools.Registry, inv *Investigation, client *api.Cl
 func recordFindingTool(inv *Investigation) *tools.Tool {
 	return &tools.Tool{
 		Def: tools.Def("record_finding",
-			"Record an evidence-grounded finding. REQUIRED: at least one evidence_ref (a function name, string, or address). A finding with no evidence is refused — never record a claim you can't point to. For VULN findings, set `category` to the bug class (e.g. stack-overflow, use-after-free, command-injection) and `cwe` to the CWE id.",
+			"Record an evidence-grounded finding. REQUIRED: at least one evidence_ref (a function name, string, address, or for APK/script projects a file:line). A finding with no evidence is refused — never record a claim you can't point to. For VULN findings, set `category` to the bug class (e.g. stack-overflow, use-after-free, command-injection) and `cwe` to the CWE id.",
 			tools.Obj(map[string]any{
 				"category":      tools.StrProp("malware: persistence, c2, crypto, anti-analysis, capability. vuln: the bug class, e.g. stack-overflow, integer-overflow, command-injection, path-traversal, insecure-deserialization"),
 				"severity":      tools.StrProp("info | low | medium | high | critical"),
 				"note":          tools.StrProp("what you found, in plain language (for vuln: the source→sink path and why it's controllable)"),
 				"cwe":           tools.StrProp("optional CWE id for vuln findings, e.g. CWE-787, CWE-416, CWE-78"),
-				"evidence_refs": tools.ArrProp("function names / strings / addresses that ground this finding"),
+				"evidence_refs": tools.ArrProp("function names / strings / addresses (or file:line for APK/script projects) that ground this finding"),
 			}, "category", "note", "evidence_refs")),
 		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
 			var a struct {
@@ -170,9 +179,9 @@ func markObjectiveTool(inv *Investigation) *tools.Tool {
 func highlightFunctionTool(inv *Investigation, client *api.Client, project *api.Project) *tools.Tool {
 	return &tools.Tool{
 		Def: tools.Def("highlight_function",
-			"Add a function to the project's Highlights board (evidence board) so the analyst captures a screenshot of it for the report. Use for the functions that matter most (+ why). Creates a FUNCTION-anchored highlight via the existing backend.",
+			highlightDesc(project),
 			tools.Obj(map[string]any{
-				"name": tools.StrProp("function name to highlight"),
+				"name": tools.StrProp(highlightNameDesc(project)),
 				"tag":  tools.StrProp("short tag, e.g. 'crypto', 'c2', 'entry'"),
 				"note": tools.StrProp("why this function matters"),
 			}, "name")),
@@ -189,13 +198,22 @@ func highlightFunctionTool(inv *Investigation, client *api.Client, project *api.
 				// the transcript/report instead of 404ing.
 				return fmt.Sprintf("noted highlight %s [%s] (local project — no backend board; call it out in the report)", a.Name, a.Tag), nil
 			}
-			_, err := client.CreateHighlight(project.ID, api.CreateHighlightRequest{
-				Type: api.HighlightFunction, TargetRef: a.Name, Tag: a.Tag, Note: a.Note,
-			})
+			req := api.CreateHighlightRequest{Type: api.HighlightFunction, TargetRef: a.Name, Tag: a.Tag, Note: a.Note}
+			what := "function"
+			if project.Kind != api.KindBIN {
+				// Source-tree projects anchor highlights to a FILE (the UI opens
+				// targetRef as a path); a "path:line" ref keeps its line in the note.
+				path, line := splitFileLine(a.Name)
+				req.Type, req.TargetRef, what = api.HighlightFile, path, "file"
+				if line != "" {
+					req.Note = strings.TrimSpace("line " + line + ": " + a.Note)
+				}
+			}
+			_, err := client.CreateHighlight(project.ID, req)
 			if err != nil {
 				return "", fmt.Errorf("create highlight: %w", err)
 			}
-			return "highlighted function " + a.Name, nil
+			return "highlighted " + what + " " + a.Name, nil
 		},
 	}
 }
@@ -244,4 +262,33 @@ func QuestionFromAskUser(input json.RawMessage) string {
 	var a struct{ Question string }
 	_ = json.Unmarshal(input, &a)
 	return a.Question
+}
+
+func highlightDesc(project *api.Project) string {
+	if project.Kind != api.KindBIN {
+		return "Add a source file to the project's Highlights board (evidence board) so the analyst captures it for the report. Use for the classes/files that matter most (+ why). Pass the file path, optionally as path:line to point at the pivotal line."
+	}
+	return "Add a function to the project's Highlights board (evidence board) so the analyst captures a screenshot of it for the report. Use for the functions that matter most (+ why). Creates a FUNCTION-anchored highlight via the existing backend."
+}
+
+func highlightNameDesc(project *api.Project) string {
+	if project.Kind != api.KindBIN {
+		return "file path to highlight, e.g. sources/com/evil/Crypto.java or sources/com/evil/Crypto.java:42"
+	}
+	return "function name to highlight"
+}
+
+// splitFileLine splits "path/File.java:42" into its path and line; a ref
+// without a numeric :line suffix comes back whole with an empty line.
+func splitFileLine(ref string) (path, line string) {
+	i := strings.LastIndexByte(ref, ':')
+	if i <= 0 || i == len(ref)-1 {
+		return ref, ""
+	}
+	for _, r := range ref[i+1:] {
+		if r < '0' || r > '9' {
+			return ref, ""
+		}
+	}
+	return ref[:i], ref[i+1:]
 }

@@ -7,6 +7,7 @@ import (
 
 	"openbin.ai/binny/internal/app"
 	"openbin.ai/binny/internal/config"
+	"openbin.ai/binny/internal/playbook"
 )
 
 // slashResult is what a slash command produces: transcript lines to append and
@@ -36,20 +37,10 @@ func (m *Model) handleSlash(input string) slashResult {
 		return slashResult{lines: []line{sysLine("Bye.")}, quit: true}
 
 	case "/mode":
-		if len(args) == 0 {
-			return slashResult{lines: []line{sysLine(fmt.Sprintf(
-				"Mode: %s. Usage: /mode malware | vuln", modeLabel(s.Mode)))}}
-		}
-		switch strings.ToLower(args[0]) {
-		case "malware", "mar", "m":
-			s.Mode = app.ModeMalware
-		case "vuln", "vulnerability", "vrr", "vr", "v":
-			s.Mode = app.ModeVuln
-		default:
-			return slashResult{lines: []line{errLine(fmt.Sprintf(
-				"unknown mode %q — use 'malware' or 'vuln'", args[0]))}}
-		}
-		return slashResult{lines: []line{okLine("Mode → " + modeLabel(s.Mode))}}
+		return slashResult{lines: m.cmdMode(args)}
+
+	case "/focus":
+		return slashResult{lines: m.cmdFocus(args)}
 
 	case "/models":
 		return slashResult{lines: modelsLines(m)}
@@ -156,6 +147,105 @@ func (m *Model) cmdEndpoint(args []string) []line {
 	return out
 }
 
+// cmdMode shows or switches the analysis mode. Mode can't change once the
+// engine is running — the toolset and report schema are fixed at Start.
+// `/mode vuln <class...>` also scopes the vuln hunt (see cmdFocus).
+func (m *Model) cmdMode(args []string) []line {
+	s := m.sess
+	if len(args) == 0 {
+		out := []line{sysLine(fmt.Sprintf("Mode: %s. Usage: /mode malware | vuln [class...]", modeLabel(s.Mode)))}
+		if s.Mode == app.ModeVuln {
+			out = append(out, sysLine("  focus: "+focusLabel(s.VulnFocus)+"  (/focus to change)"))
+		}
+		return out
+	}
+	want := s.Mode
+	switch strings.ToLower(args[0]) {
+	case "malware", "mar", "m":
+		want = app.ModeMalware
+	case "vuln", "vulnerability", "vrr", "vr", "v":
+		want = app.ModeVuln
+	default:
+		return []line{errLine(fmt.Sprintf("unknown mode %q — use 'malware' or 'vuln'", args[0]))}
+	}
+	if m.engineStarted && want != s.Mode {
+		return []line{errLine("Can't switch mode mid-session — the toolset and report type are fixed when BINNY starts. /quit and relaunch to change mode.")}
+	}
+	s.Mode = want
+	if want == app.ModeMalware {
+		s.VulnFocus = nil
+		return []line{okLine("Mode → " + modeLabel(s.Mode))}
+	}
+	// Any trailing args are a focus spec.
+	out := []line{okLine("Mode → " + modeLabel(s.Mode))}
+	if len(args) > 1 {
+		out = append(out, m.cmdFocus(args[1:])...)
+	} else {
+		out = append(out, sysLine("  focus: "+focusLabel(s.VulnFocus)+"  (/focus <class...> to scope the hunt)"))
+	}
+	return out
+}
+
+// cmdFocus scopes a vuln-mode session to specific vulnerability classes.
+func (m *Model) cmdFocus(args []string) []line {
+	s := m.sess
+	if s.Mode != app.ModeVuln {
+		return []line{sysLine("/focus scopes VULN research. Switch with /mode vuln first.")}
+	}
+	if len(args) == 0 {
+		return append([]line{
+			sysLine("Vuln focus: " + focusLabel(s.VulnFocus)),
+			sysLine("Scope the hunt to one or more classes: /focus memory   ·   /focus auth crypto   ·   /focus all (survey)"),
+			sysLine("Classes:"),
+		}, sysLine(playbook.VulnClassList()))
+	}
+	if m.engineStarted {
+		return []line{errLine("Focus is fixed once the hunt is running — the objectives are already loaded. /quit and relaunch to re-scope.")}
+	}
+	if len(args) == 1 {
+		switch strings.ToLower(args[0]) {
+		case "all", "clear", "none", "survey":
+			s.VulnFocus = nil
+			return []line{okLine("Focus cleared — BINNY will survey every vulnerability class.")}
+		}
+	}
+	var keys, unknown []string
+	seen := map[string]bool{}
+	for _, a := range args {
+		if c, ok := playbook.LookupVulnClass(a); ok {
+			if !seen[c.Key] {
+				seen[c.Key] = true
+				keys = append(keys, c.Key)
+			}
+		} else {
+			unknown = append(unknown, a)
+		}
+	}
+	if len(keys) == 0 {
+		return []line{errLine(fmt.Sprintf("no known vulnerability class in %q — /focus with no args lists them", strings.Join(args, " ")))}
+	}
+	s.VulnFocus = keys
+	out := []line{okLine("Focus → " + focusLabel(keys) + ". BINNY will hunt only these.")}
+	if len(unknown) > 0 {
+		out = append(out, warnLine("ignored (unknown): "+strings.Join(unknown, ", ")))
+	}
+	return out
+}
+
+// focusLabel renders the focused class names, or "all classes (survey)".
+func focusLabel(keys []string) string {
+	if len(keys) == 0 {
+		return "all classes (survey)"
+	}
+	var names []string
+	for _, k := range keys {
+		if c, ok := playbook.LookupVulnClass(k); ok {
+			names = append(names, c.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 func modeLabel(mode app.Mode) string {
 	if mode == app.ModeVuln {
 		return "VULN_RESEARCH (VRR)"
@@ -182,12 +272,14 @@ func helpLines() []line {
 		sysLine("  /findings              show recorded findings, IOCs, classification, coverage"),
 		sysLine("  /save                  push the draft to the project report (DRAFT — review first)"),
 		sysLine("  /sample [path]         attach the raw binary on disk to enable active extraction"),
-		sysLine("  /decompile <path> [proc]  decompile a binary locally with Ghidra (kept on disk, no upload; proc = Ghidra ID like ARM:LE:32:v7 for raw firmware)"),
+		sysLine("  /decompile <path> [proc]  decompile locally — Ghidra for a binary, JADX for an .apk/.xapk (kept on disk, no upload; proc = Ghidra ID like ARM:LE:32:v7 for raw firmware)"),
+		sysLine("  /upload                create an OpenAPK project from the attached local APK (reuses the local decompile)"),
 		sysLine("  /samples               list this project's extra samples (dropper + payloads, firmware revisions)"),
 		sysLine("  /switch <#|label>      point BINNY's read tools at another sample ('primary' = the project's own binary)"),
 		sysLine("  /workspace [path]      show/set the persistent sandbox workspace mounted at /work"),
 		sysLine("  /refresh               drop this backend project's cached analysis blob"),
-		sysLine("  /mode malware|vuln     switch analysis lens (MAR / VRR)"),
+		sysLine("  /mode malware|vuln     switch analysis lens (MAR / VRR); /mode vuln <class...> also scopes the hunt"),
+		sysLine("  /focus <class...>      vuln only: hunt specific classes (memory, auth, crypto, …); /focus to list, /focus all to survey"),
 		sysLine("  /models                list configured LLM providers + models"),
 		sysLine("  /model [id]            switch model/provider — no arg opens the ↑/↓ picker"),
 		sysLine("  /key [provider]        set/update the BYOK API key (opens key entry)"),
@@ -246,9 +338,14 @@ func statusLines(m *Model) []line {
 		sysLine("BINNY session:"),
 		sysLine("  provider/model : " + providerID(m) + " / " + s.Model),
 		sysLine("  mode           : " + modeLabel(s.Mode)),
-		sysLine("  phase          : " + string(s.Phase)),
-		sysLine("  project        : " + proj),
 	}
+	if s.Mode == app.ModeVuln {
+		out = append(out, sysLine("  vuln focus     : "+focusLabel(s.VulnFocus)))
+	}
+	out = append(out,
+		sysLine("  phase          : "+string(s.Phase)),
+		sysLine("  project        : "+proj),
+	)
 	if s.Sample != nil {
 		out = append(out, sysLine(fmt.Sprintf("  active sample  : %s (extra sample — /switch primary to go back)", s.Sample.DisplayName())))
 	}

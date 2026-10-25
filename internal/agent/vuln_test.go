@@ -35,8 +35,10 @@ func TestRecordFindingCWE(t *testing.T) {
 func TestVulnSynthesizeBriefIsVRR(t *testing.T) {
 	snap := (&Investigation{}).Snapshot()
 	vuln := synthesizeBrief(app.ModeVuln, nil, snap)
-	if !strings.Contains(vuln, "Vulnerability Research Report") || !strings.Contains(vuln, "SOURCE→SINK") {
-		t.Errorf("vuln synthesize brief missing VRR framing:\n%s", vuln)
+	for _, want := range []string{"Vulnerability Research Report", "CVE-style advisories", "[advisories]", "CVSS 3.1"} {
+		if !strings.Contains(vuln, want) {
+			t.Errorf("vuln synthesize brief missing %q:\n%s", want, vuln)
+		}
 	}
 	mal := synthesizeBrief(app.ModeMalware, nil, snap)
 	if strings.Contains(mal, "Vulnerability Research Report") {

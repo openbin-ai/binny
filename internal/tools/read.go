@@ -40,6 +40,26 @@ type Toolbox struct {
 	analysis       *api.Analysis
 	analysisErr    error
 	analysisLoaded bool
+
+	// APK/script projects: the file tree and parsed manifest, fetched once.
+	tree           *api.FileNode
+	treeErr        error
+	treeLoaded     bool
+	manifestData   *api.Manifest
+	manifestErr    error
+	manifestLoaded bool
+	src            sourceTree // resolved by source(): backend API or local JADX tree
+
+	// Progress, when set, receives one-off status lines (e.g. the source
+	// tree download) for the analyst to see.
+	Progress func(format string, args ...any)
+}
+
+func (tb *Toolbox) progress() func(string, ...any) {
+	if tb.Progress != nil {
+		return tb.Progress
+	}
+	return func(string, ...any) {}
 }
 
 // NewToolbox builds a toolbox for a project.
@@ -203,9 +223,23 @@ func (tb *Toolbox) SetAnalysisRaw(raw []byte) error {
 	return nil
 }
 
-// RegisterRead adds the Navigate/Read toolset to a registry.
+// RegisterRead adds the Navigate/Read toolset to a registry. The set depends
+// on the project kind: a BIN project reads the Ghidra analysis blob; APK and
+// script projects have no blob, so offering get_strings / get_imports / xrefs
+// there only invites calls that fail — they get the source-tree tools instead.
 func (tb *Toolbox) RegisterRead(reg *Registry) {
 	reg.Add(tb.getMetadataTool())
+	if tb.Project.Kind != api.KindBIN {
+		reg.Add(tb.listFilesTool())
+		reg.Add(tb.readFileTool())
+		reg.Add(tb.codeSearchTool())
+		if tb.Project.Kind == api.KindAPK {
+			reg.Add(tb.getManifestTool())
+			reg.Add(tb.findDefinitionTool())
+			reg.Add(tb.findUsagesTool())
+		}
+		return
+	}
 	reg.Add(tb.listFunctionsTool())
 	reg.Add(tb.getFunctionTool())
 	reg.Add(tb.getStringsTool())
@@ -234,12 +268,17 @@ func (tb *Toolbox) getMetadataTool() *Tool {
 			} else if p.Sha256 != "" {
 				fmt.Fprintf(&b, "sha256: %s\n", p.Sha256)
 			}
+			if p.Kind == api.KindAPK {
+				b.WriteString("format: Android APK (decompiled to Java source)\n")
+				tb.apkMetadata(&b)
+				return b.String(), nil
+			}
 			if p.Kind != api.KindBIN {
 				fmt.Fprintf(&b, "format: %s package\n", p.Kind)
 				if p.PackageName != "" {
 					fmt.Fprintf(&b, "package: %s\n", p.PackageName)
 				}
-				b.WriteString("(no binary-analysis blob for this kind — use list_files / read_file)\n")
+				b.WriteString("(no binary-analysis blob for this kind — use list_files / read_file / search)\n")
 				return b.String(), nil
 			}
 			a, err := tb.analysisBlob()
@@ -780,38 +819,25 @@ func (tb *Toolbox) searchTool() *Tool {
 func (tb *Toolbox) listFilesTool() *Tool {
 	return &Tool{
 		Def: Def("list_files",
-			"List the project's file tree (for APK / script projects). Returns relative paths.",
-			Obj(map[string]any{})),
-		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
-			if tb.Project.IsLocal() {
-				return "", fmt.Errorf("local project — there is no backend file tree; use the sandbox (`run` ls in /work) for workspace files")
+			"List the project's file tree (for APK / script projects). Returns relative paths under `dir` (default: the root) whose path contains `filter`. A large tree comes back as per-subdirectory file counts — drill in with dir. Library/SDK code (androidx/, kotlin/, com/google/, …) is hidden unless include_sdks.",
+			Obj(map[string]any{
+				"dir":    StrProp("optional: directory to list, e.g. sources/com/evil/app"),
+				"filter": StrProp("optional: case-insensitive substring the path must contain, e.g. Crypto or .xml"),
+				"include_sdks": map[string]any{"type": "boolean",
+					"description": "also list library/SDK packages (default false)"},
+			})),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			var args struct {
+				Dir         string `json:"dir"`
+				Filter      string `json:"filter"`
+				IncludeSdks bool   `json:"include_sdks"`
 			}
-			root, err := tb.API.FileTree(tb.Project.ID)
+			_ = json.Unmarshal(input, &args)
+			root, err := tb.fileTree()
 			if err != nil {
 				return "", err
 			}
-			var paths []string
-			var walk func(n *api.FileNode)
-			walk = func(n *api.FileNode) {
-				if len(paths) >= maxListItems {
-					return
-				}
-				if n.Type == "file" {
-					paths = append(paths, n.Path)
-				}
-				for i := range n.Children {
-					walk(&n.Children[i])
-				}
-			}
-			walk(root)
-			if len(paths) == 0 {
-				return "no files", nil
-			}
-			out := strings.Join(paths, "\n")
-			if len(paths) >= maxListItems {
-				out += "\n… (tree truncated)"
-			}
-			return out, nil
+			return listTree(root, args.Dir, args.Filter, args.IncludeSdks), nil
 		},
 	}
 }
@@ -819,27 +845,44 @@ func (tb *Toolbox) listFilesTool() *Tool {
 func (tb *Toolbox) readFileTool() *Tool {
 	return &Tool{
 		Def: Def("read_file",
-			"Read a file's text content by relative `path` (for APK / script projects). Applied renames are substituted in. Long files are truncated.",
-			Obj(map[string]any{"path": StrProp("relative file path within the project")}, "path")),
+			"Read a file's text content by relative `path` (for APK / script projects). Applied renames are substituted in. Pass start_line (e.g. a search/find_usages hit's line minus a few) to read a numbered window from there; a long file returns its first page with the start_line to continue from.",
+			Obj(map[string]any{
+				"path": StrProp("relative file path within the project"),
+				"start_line": map[string]any{"type": "integer",
+					"description": "optional: 1-based line to start reading from (output is line-numbered)"},
+			}, "path")),
 		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
-			var args struct{ Path string }
+			var args struct {
+				Path      string `json:"path"`
+				StartLine int    `json:"start_line"`
+			}
 			_ = json.Unmarshal(input, &args)
 			if args.Path == "" {
 				return "", fmt.Errorf("provide path")
 			}
-			if tb.Project.IsLocal() {
-				return "", fmt.Errorf("local project — there are no backend files; use the sandbox (`run` cat/read_artifact in /work) for workspace files")
+			src, err := tb.source()
+			if err != nil {
+				return "", err
 			}
-			fc, err := tb.API.FileContent(tb.Project.ID, args.Path)
+			fc, err := src.File(args.Path)
 			if err != nil {
 				return "", err
 			}
 			if fc.Encoding == "binary" {
 				return fmt.Sprintf("(binary file, %d bytes — not text)", fc.Size), nil
 			}
-			body := truncate(fc.Content, maxFileChars)
-			if fc.Truncated || len(fc.Content) > maxFileChars {
-				body += "\n… (truncated)"
+			if args.StartLine <= 0 && len(fc.Content) <= maxFileChars {
+				body := fc.Content
+				if fc.Truncated {
+					body += "\n… (truncated by the server)"
+				}
+				return body, nil
+			}
+			body, next := sliceLines(fc.Content, args.StartLine, maxFileChars)
+			if next > 0 {
+				body += fmt.Sprintf("… (more — read_file again with start_line=%d)", next)
+			} else if fc.Truncated {
+				body += "… (rest of file truncated by the server)"
 			}
 			return body, nil
 		},

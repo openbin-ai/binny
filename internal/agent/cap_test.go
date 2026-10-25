@@ -18,7 +18,7 @@ func capTestEngine(t *testing.T, autonomy app.Autonomy) *Engine {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	return NewEngine(sess, inv, reg, &scriptedProvider{})
 }
 

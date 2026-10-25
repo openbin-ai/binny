@@ -23,7 +23,13 @@ func Build(sess *app.Session, client *api.Client) (*Engine, *Investigation, erro
 
 	tb := tools.NewToolbox(client, sess.Project)
 	tb.RegisterRead(reg)
-	registerOutputTools(reg, inv, client, sess.Project)
+	var eng *Engine
+	tb.Progress = func(format string, args ...any) {
+		if eng != nil {
+			eng.StreamLine(fmt.Sprintf(format, args...))
+		}
+	}
+	registerOutputTools(reg, inv, client, sess.Project, sess.Mode)
 	registerExtractionTools(reg, inv, sess)
 	registerSampleTools(reg, sess, tb)
 	if sess.Sample != nil {
@@ -35,13 +41,17 @@ func Build(sess *app.Session, client *api.Client) (*Engine, *Investigation, erro
 		}
 	}
 
-	eng := NewEngine(sess, inv, reg, provider)
+	eng = NewEngine(sess, inv, reg, provider)
 	eng.tb = tb
 
 	// The local Ghidra tool streams its (minutes-long) progress through the
 	// engine's live text sink so the analyst sees what's happening mid-call.
-	registerDecompileTool(reg, sess, tb, func(format string, args ...any) {
-		eng.StreamLine(fmt.Sprintf(format, args...))
-	})
+	// BIN only: its output feeds the native read tools, which APK/script
+	// projects don't have.
+	if sess.Project.Kind == api.KindBIN {
+		registerDecompileTool(reg, sess, tb, func(format string, args ...any) {
+			eng.StreamLine(fmt.Sprintf(format, args...))
+		})
+	}
 	return eng, inv, nil
 }

@@ -78,6 +78,11 @@ type Session struct {
 	Intel      string       // analyst-supplied intel (phase INTEL)
 	SamplePath string       // local path to the raw sample (for extraction)
 
+	// VulnFocus scopes a vuln-mode session to specific vulnerability classes
+	// (resolved playbook.VulnClass keys). Empty = survey every class. Ignored
+	// in malware mode.
+	VulnFocus []string
+
 	// WorkspacePath is the persistent host dir mounted rw at /work in the
 	// extraction sandbox. Empty = per-sample default under
 	// ~/.local/share/binny/workspaces/ (resolved lazily; see /workspace).

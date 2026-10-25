@@ -44,3 +44,18 @@ func TestVulnPlaybooksWellFormed(t *testing.T) {
 		}
 	}
 }
+
+func TestBiasForAPK(t *testing.T) {
+	for _, pb := range SelectByTypes([]string{"ransomware", "spyware", "backdoor", "trojan"}) {
+		if pb.AndroidBias == "" {
+			t.Errorf("%s has no AndroidBias", pb.Name)
+		}
+		if pb.BiasFor("APK") != pb.AndroidBias || pb.BiasFor("BIN") != pb.ToolBias {
+			t.Errorf("%s: BiasFor picks the wrong hint", pb.Name)
+		}
+	}
+	// A playbook without an Android variant falls back to its ToolBias.
+	if got := VulnPlaybookFor("APK").BiasFor("APK"); got != VulnPlaybookFor("APK").ToolBias {
+		t.Errorf("fallback BiasFor = %q", got)
+	}
+}

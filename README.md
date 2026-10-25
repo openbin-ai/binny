@@ -9,7 +9,7 @@
 
 <p align="center">An open source agent harness for reverse engineering. Plug in any model, point it at a binary, and it works through the code with real tools and hands you a report to review.</p>
 
-BINNY is the harness, not the model. It brings the tools (decompiled functions, strings, imports, data, a sealed sandbox, local Ghidra), the playbooks, the triage, investigate, draft loop, the budgets, the checkpoints and the report format. The model is whatever you plug in: Claude, GPT, DeepSeek, Qwen, Kimi, Gemini, Bedrock, or a local model through Ollama or LM Studio. BINNY opens one of your [OpenBin](https://openbin.ai) or [OpenAPK](https://openapk.ai) projects, or decompiles a file on your disk, and runs that loop against the decompiled code. Every step is a tool call you can watch: it lists functions, reads decompilations, pulls strings, imports and data, runs scripts in a sealed sandbox, and records findings as it goes. The draft lands on the project report for you to check before anything is published.
+BINNY is the harness, not the model. It brings the tools (decompiled functions, strings, imports, data, a sealed sandbox, local Ghidra and JADX), the playbooks, the triage, investigate, draft loop, the budgets, the checkpoints and the report format. The model is whatever you plug in: Claude, GPT, DeepSeek, Qwen, Kimi, Gemini, Bedrock, or a local model through Ollama or LM Studio. BINNY opens one of your [OpenBin](https://openbin.ai) or [OpenAPK](https://openapk.ai) projects, or decompiles a file on your disk, and runs that loop against the decompiled code. Every step is a tool call you can watch: it lists functions, reads decompilations, pulls strings, imports and data, runs scripts in a sealed sandbox, and records findings as it goes. The draft lands on the project report for you to check before anything is published.
 
 It runs on your own model key, or on a local model. Nothing about your sample goes to us unless you put it in a project.
 
@@ -34,7 +34,7 @@ openbin login   # once; BINNY reuses the openbin CLI's sign-in
 binny           # pick a project, set a key, go
 ```
 
-Prebuilt binaries for every platform are on the [releases page](https://github.com/openbin-ai/binny/releases). Docker is needed only for `/decompile` (local Ghidra) and the sandbox tools.
+Prebuilt binaries for every platform are on the [releases page](https://github.com/openbin-ai/binny/releases). Docker is needed only for `/decompile` (local Ghidra or JADX) and the sandbox tools.
 
 ## What it does
 
@@ -44,9 +44,9 @@ Prebuilt binaries for every platform are on the [releases page](https://github.c
 
 **Ask.** `/ask` skips the pipeline. Pick up a project at its current state and question it: verify a claim in an existing report, inspect one function, or build a defensive proof of concept such as a config decryptor. An existing report is treated as claims to check, not facts.
 
-**Tools, not vibes.** Read tools work on the project's analysis: metadata, function list, decompiled function, strings, imports, exports, data symbols, raw data reads, and for Android projects file listing and file reads. `/sample <path>` attaches the raw binary and unlocks extraction. The sandbox `run` tool executes scripts in a Docker container with no network, a read-only root, a read-only sample mount, dropped capabilities and CPU, memory and pid limits. `/work` is a persistent workspace that survives between sessions.
+**Tools, not vibes.** Read tools work on the project's analysis: metadata, function list, decompiled function, strings, imports, exports, data symbols, raw data reads. Android projects get their own set: the parsed manifest (permissions, exported components, intent filters), code search, find definition / find usages, and file listing and reads; the native-only tools are not offered there. `/sample <path>` attaches the raw binary and unlocks extraction. The sandbox `run` tool executes scripts in a Docker container with no network, a read-only root, a read-only sample mount, dropped capabilities and CPU, memory and pid limits. `/work` is a persistent workspace that survives between sessions.
 
-**Local decompile.** `/decompile <path> [processor]` runs Ghidra on your machine and keeps the result on disk. Nothing is uploaded. Raw firmware takes a Ghidra processor ID such as `ARM:LE:32:v7`. Multi-sample projects (dropper plus payloads, firmware revisions) are handled with `/samples` and `/switch`.
+**Local decompile.** `/decompile <path> [processor]` runs Ghidra on your machine and keeps the result on disk. Nothing is uploaded. Raw firmware takes a Ghidra processor ID such as `ARM:LE:32:v7`. Point it at an `.apk` or `.xapk` and it runs JADX instead, with the same worker image as `openbin apk` (the image cache is shared with the openbin CLI); every Android tool then reads the decompiled tree from disk. `/upload` turns that local APK into an OpenAPK project without decompiling again. Multi-sample projects (dropper plus payloads, firmware revisions) are handled with `/samples` and `/switch`.
 
 **Resume.** Sessions auto-save after every step. Reopen a project marked resumable and BINNY continues where it stopped.
 
@@ -76,7 +76,8 @@ Type `/` in the prompt for the palette, or `/help` for the full list.
 | `/autonomy <mode>` | autonomous, supervised or collaborative |
 | `/mode malware\|vuln` | analysis lens |
 | `/sample <path>` | attach the raw binary |
-| `/decompile <path> [proc]` | local Ghidra decompile, kept on disk |
+| `/decompile <path> [proc]` | local decompile, kept on disk (Ghidra for binaries, JADX for APKs) |
+| `/upload` | create an OpenAPK project from the attached local APK |
 | `/samples`, `/switch` | multi-sample projects |
 | `/workspace [path]` | persistent sandbox workspace |
 | `/draft`, `/findings`, `/save` | the report |

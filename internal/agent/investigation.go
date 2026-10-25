@@ -35,9 +35,23 @@ type Finding struct {
 	Category     string   // e.g. "persistence", "c2", "crypto" (malware) or a bug class (vuln)
 	Severity     string   // info|low|medium|high|critical
 	Note         string   // human-readable description
-	CWE          string   // optional CWE id for vuln findings, e.g. "CWE-787"
+	CWE          string   // CWE id for vuln findings, e.g. "CWE-787"
 	EvidenceRefs []string // fn names / strings / addresses that ground it
+
+	// Vulnerability-research fields (set by the vuln-mode record_finding, which
+	// requires them; empty on malware findings).
+	Reachability    string   // proven | likely | unproven | ruled_out
+	Source          string   // where attacker-controlled input enters
+	Sink            string   // the dangerous operation it reaches
+	Path            []string // source→sink hops, each a function / file:line
+	Controllability string   // what the attacker controls at the sink (size, content, index…)
+	Mitigations     string   // what stands in the way (canary, NX, validation, permission…)
+	Remediation     string   // how to fix it
+	CVSS            string   // optional CVSS vector, e.g. CVSS:3.1/AV:N/…
 }
+
+// IsVuln reports whether a finding came through the vuln-mode schema.
+func (f Finding) IsVuln() bool { return f.Reachability != "" }
 
 // IOC is an indicator of compromise, each tied to one evidence ref.
 type IOC struct {
@@ -84,7 +98,7 @@ func NewInvestigation() *Investigation { return &Investigation{} }
 // to the LLM) if no evidence ref is supplied — the grounding guarantee.
 func (inv *Investigation) AddFinding(f Finding) error {
 	if len(f.EvidenceRefs) == 0 {
-		return fmt.Errorf("finding refused: at least one evidence_ref (function, string, or address) is required — every finding must be grounded")
+		return fmt.Errorf("finding refused: at least one evidence_ref (function, string, address, or file:line) is required — every finding must be grounded")
 	}
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
@@ -205,7 +219,7 @@ func (s InvestigationSnapshot) EvidenceSummary() string {
 	if len(s.MalwareTypes) > 0 {
 		fmt.Fprintf(&b, "Classification: %s (confidence: %s)\n", strings.Join(s.MalwareTypes, ", "), orUnknown(s.Confidence))
 	}
-	if len(s.Findings) > 0 {
+	if !vulnSummary(&b, s.Findings) && len(s.Findings) > 0 {
 		b.WriteString("\nFindings:\n")
 		for _, f := range s.Findings {
 			cwe := ""
@@ -258,4 +272,70 @@ func orUnknown(s string) string {
 		return "unstated"
 	}
 	return s
+}
+
+// vulnSummary renders vuln-schema findings grouped by reachability verdict —
+// confirmed bugs first, ruled-out candidates last — with every structured
+// field, so synthesis writes from the facts BINNY actually established.
+// Returns false when there are no vuln findings.
+func vulnSummary(b *strings.Builder, findings []Finding) bool {
+	groups := []struct{ key, title string }{
+		{"proven", "Vulnerabilities — reachability PROVEN"},
+		{"likely", "Vulnerabilities — reachability LIKELY (path partly established)"},
+		{"unproven", "Candidates — reachability NOT established"},
+		{"ruled_out", "Investigated and RULED OUT (keep these: negative results are part of the research)"},
+	}
+	any := false
+	for _, f := range findings {
+		any = any || f.IsVuln()
+	}
+	if !any {
+		return false
+	}
+	for _, g := range groups {
+		var fs []Finding
+		for _, f := range findings {
+			if f.Reachability == g.key {
+				fs = append(fs, f)
+			}
+		}
+		if len(fs) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "\n%s:\n", g.title)
+		for _, f := range fs {
+			fmt.Fprintf(b, "- [%s %s/%s] %s\n", f.CWE, f.Category, f.Severity, f.Note)
+			fmt.Fprintf(b, "    source: %s\n    sink: %s\n", f.Source, f.Sink)
+			if len(f.Path) > 0 {
+				fmt.Fprintf(b, "    path: %s\n", strings.Join(f.Path, " → "))
+			}
+			if f.Controllability != "" {
+				fmt.Fprintf(b, "    attacker controls: %s\n", f.Controllability)
+			}
+			if f.Mitigations != "" {
+				fmt.Fprintf(b, "    mitigations: %s\n", f.Mitigations)
+			}
+			if f.CVSS != "" {
+				fmt.Fprintf(b, "    cvss: %s\n", f.CVSS)
+			}
+			if f.Remediation != "" {
+				fmt.Fprintf(b, "    fix: %s\n", f.Remediation)
+			}
+			fmt.Fprintf(b, "    evidence: %s\n", strings.Join(f.EvidenceRefs, ", "))
+		}
+	}
+	// Malware-schema findings recorded alongside (rare in vuln mode).
+	var other []Finding
+	for _, f := range findings {
+		if !f.IsVuln() {
+			other = append(other, f)
+		}
+	}
+	if len(other) > 0 {
+		b.WriteString("\nOther observations:\n")
+		for _, f := range other {
+			fmt.Fprintf(b, "- [%s/%s] %s (evidence: %s)\n", f.Category, f.Severity, f.Note, strings.Join(f.EvidenceRefs, ", "))
+		}
+	}
+	return true
 }

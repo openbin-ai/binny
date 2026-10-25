@@ -18,7 +18,7 @@ import (
 
 var startItems = []struct{ label, desc string }{
 	{"Analyze a project", "pick a decompiled project (backend or local) and investigate it"},
-	{"Decompile a local binary", "run Ghidra locally — kept on disk, works offline, handles raw firmware"},
+	{"Decompile a local binary or APK", "Ghidra for binaries (incl. raw firmware), JADX for .apk/.xapk — kept on disk, works offline"},
 	{"Settings", "LLM provider & model · API keys · token budget"},
 	{"Quit", "exit BINNY"},
 }

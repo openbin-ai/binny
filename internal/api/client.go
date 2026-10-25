@@ -9,8 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -137,6 +140,62 @@ func (c *Client) FileContent(id, path string) (*FileContent, error) {
 	return &out, nil
 }
 
+// SearchCode greps the project's decompiled source server-side
+// (GET /api/projects/{id}/search). APK/SCRIPT only — BIN code lives in the
+// analysis blob. The pattern is a Java regex when regex=true. SDK/library
+// paths (androidx/, kotlin/, com/google/, …) are skipped unless includeSdks.
+func (c *Client) SearchCode(id, q string, regex, caseSensitive, includeSdks bool, limit int) ([]SearchHit, error) {
+	v := url.Values{}
+	v.Set("q", q)
+	v.Set("regex", fmt.Sprint(regex))
+	v.Set("caseSensitive", fmt.Sprint(caseSensitive))
+	v.Set("includeSdks", fmt.Sprint(includeSdks))
+	v.Set("limit", fmt.Sprint(limit))
+	var out []SearchHit
+	if err := c.do("GET", "/api/projects/"+id+"/search?"+v.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Manifest returns the parsed AndroidManifest.xml (GET /api/projects/{id}/manifest). APK only.
+func (c *Client) Manifest(id string) (*Manifest, error) {
+	var out Manifest
+	if err := c.do("GET", "/api/projects/"+id+"/manifest", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SymbolDefinition finds where a class/method/field is declared
+// (GET /api/projects/{id}/symbols/definition). APK only.
+func (c *Client) SymbolDefinition(id, name string, includeSdks bool) ([]JavaSymbol, error) {
+	v := url.Values{}
+	v.Set("name", name)
+	v.Set("includeSdks", fmt.Sprint(includeSdks))
+	var out []JavaSymbol
+	if err := c.do("GET", "/api/projects/"+id+"/symbols/definition?"+v.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SymbolUsages finds references to a symbol (GET /api/projects/{id}/symbols/usages).
+// className narrows to members of one class when the bare name is ambiguous. APK only.
+func (c *Client) SymbolUsages(id, name, className string, includeSdks bool) ([]SymbolUsage, error) {
+	v := url.Values{}
+	v.Set("name", name)
+	if className != "" {
+		v.Set("class", className)
+	}
+	v.Set("includeSdks", fmt.Sprint(includeSdks))
+	var out []SymbolUsage
+	if err := c.do("GET", "/api/projects/"+id+"/symbols/usages?"+v.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BinaryAnalysis fetches the full analysis blob. When the project carries a
 // signed CloudFront URL (schema 2.0) it's fetched directly from there;
 // otherwise the inline /binary-analysis endpoint is used. Both return the same
@@ -229,6 +288,55 @@ func (c *Client) getSignedBlob(signedURL string) ([]byte, error) {
 	return b, nil
 }
 
+// SourceBundle returns a presigned S3 GET for an APK project's whole
+// decompiled tree (GET /api/projects/{id}/source-bundle) — the same bundle the
+// OpenAPK web app's local mode downloads. 404 when the backend can't presign.
+func (c *Client) SourceBundle(id string) (*SourceBundle, error) {
+	var out SourceBundle
+	if err := c.do("GET", "/api/projects/"+id+"/source-bundle", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Download streams a presigned URL (no bearer token — the signature is the
+// auth) to dest via a .part file, so an interrupted download never looks done.
+func (c *Client) Download(signedURL, dest string) error {
+	resp, err := c.http.Get(signedURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return &APIError{Status: resp.StatusCode, Body: string(b), Method: "GET", Path: "<signed-source-bundle-url>"}
+	}
+	part := dest + ".part"
+	out, err := os.Create(part)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		out.Close()
+		os.Remove(part)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(part)
+		return err
+	}
+	return os.Rename(part, dest)
+}
+
+// Renames lists the project's renames (GET /api/projects/{id}/renames).
+func (c *Client) Renames(id string) ([]Rename, error) {
+	var out []Rename
+	if err := c.do("GET", "/api/projects/"+id+"/renames", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Highlights returns the project's Highlights board.
 func (c *Client) Highlights(id string) ([]Highlight, error) {
 	var out []Highlight
@@ -283,3 +391,91 @@ func abbreviate(s string, max int) string {
 // Abbrev truncates s to max runes with an ellipsis (exported for callers that
 // render tool activity).
 func Abbrev(s string, max int) string { return abbreviate(s, max) }
+
+// UploadAPKProject creates an OpenAPK project from an APK and the JADX tree
+// BINNY already decompiled locally — the same request `openbin apk` sends:
+//
+//	POST /api/projects   kind=APK  file=<apk>  decompiledTree=<tree.tar.gz>
+//
+// The decompiledTree part lets the upload past the cloud-JADX sunset gate: the
+// backend runs no worker (and charges no quota) and ingests the tree as-is.
+// Both parts stream from disk — the body can be hundreds of MB. Retried once
+// on a network error / 5xx; a 4xx comes straight back.
+func (c *Client) UploadAPKProject(apkPath, treePath string) (*Project, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		p, retry, err := c.uploadAPKOnce(apkPath, treePath)
+		if err == nil {
+			return p, nil
+		}
+		lastErr = err
+		if !retry {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return nil, lastErr
+}
+
+func (c *Client) uploadAPKOnce(apkPath, treePath string) (*Project, bool, error) {
+	apk, err := os.Open(apkPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("open apk: %w", err)
+	}
+	defer apk.Close()
+	tree, err := os.Open(treePath)
+	if err != nil {
+		return nil, false, fmt.Errorf("open decompiled tree: %w", err)
+	}
+	defer tree.Close()
+	token, err := c.toks.Token()
+	if err != nil {
+		return nil, false, fmt.Errorf("auth: %w", err)
+	}
+
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		part := func(field, name string, r io.Reader) error {
+			w, err := mw.CreateFormFile(field, name)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(w, r)
+			return err
+		}
+		if err := mw.WriteField("kind", string(KindAPK)); err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		if err := part("file", filepath.Base(apkPath), apk); err != nil {
+			pw.CloseWithError(fmt.Errorf("stream apk: %w", err))
+			return
+		}
+		if err := part("decompiledTree", "decompiled-tree.tar.gz", tree); err != nil {
+			pw.CloseWithError(fmt.Errorf("stream tree: %w", err))
+			return
+		}
+		pw.CloseWithError(mw.Close())
+	}()
+
+	req, _ := http.NewRequest("POST", c.ep.APIBase+"/api/projects", pr)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, true, fmt.Errorf("POST /api/projects: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiErr := &APIError{Status: resp.StatusCode, Body: string(body), Method: "POST", Path: "/api/projects"}
+		return nil, resp.StatusCode >= 500, apiErr
+	}
+	var out Project
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, false, fmt.Errorf("decode upload response: %w", err)
+	}
+	return &out, false, nil
+}

@@ -24,7 +24,7 @@ func TestEngineStateRoundTrip(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 	eng.Start()
 	eng.Step(context.Background()) // classify → investigate

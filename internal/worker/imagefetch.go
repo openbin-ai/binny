@@ -1,4 +1,4 @@
-package ghidra
+package worker
 
 import (
 	"fmt"
@@ -20,12 +20,13 @@ func releaseBase() string {
 	return releaseDownloadBase
 }
 
-// downloadWorkerImage streams the image tarball into dest (the shared openbin
-// cache dir) with a .part+rename so an interrupted download never looks done.
-// Progress goes through logf (~every 64MB) instead of a rewriting stderr line.
-func downloadWorkerImage(dest string, logf Logf) error {
-	url := releaseBase() + "/" + ImageTarball
-	logf("Worker image not found locally — downloading %s (~700MB, first run only; cached at %s)…", ImageTarball, dest)
+// downloadWorkerImage streams the named release asset into dest (the shared
+// openbin cache dir) with a .part+rename so an interrupted download never
+// looks done. Progress goes through logf (~every 64MB) instead of a rewriting
+// stderr line.
+func downloadWorkerImage(tarball, dest string, logf Logf) error {
+	url := releaseBase() + "/" + tarball
+	logf("Worker image not found locally — downloading %s (hundreds of MB, first run only; cached at %s)…", tarball, dest)
 
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)

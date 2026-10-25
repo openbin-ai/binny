@@ -19,8 +19,11 @@ type Playbook struct {
 	STIXTypes  []string // types that select this playbook (malware playbooks)
 	vuln       bool     // mode-selected vuln playbook (skipped by SelectByTypes)
 	Objectives []Objective
-	ToolBias   string    // prose hint on which tools/paths to favor
-	Sections   []Section // report template
+	ToolBias   string // prose hint on which tools/paths to favor
+	// AndroidBias replaces ToolBias on APK projects. ToolBias names native
+	// tools (get_strings, get_imports, Win32 APIs) an APK project doesn't have.
+	AndroidBias string
+	Sections    []Section // report template
 }
 
 // Section is one templated report section (id + title + guidance for content).
@@ -88,9 +91,10 @@ func All() []Playbook { return registry }
 // --- the starters ---------------------------------------------------------
 
 var ransomware = Playbook{
-	Name:      "Ransomware",
-	STIXTypes: []string{"ransomware", "wiper"},
-	ToolBias:  "Favor: get_strings for ransom-note text and file extensions; search for crypto constants (AES S-box, RSA, ChaCha), file enumeration APIs (FindFirstFile/opendir), and vssadmin/wbadmin shadow-copy deletion; get_function on the encryption routine and key handling.",
+	Name:        "Ransomware",
+	STIXTypes:   []string{"ransomware", "wiper"},
+	ToolBias:    "Favor: get_strings for ransom-note text and file extensions; search for crypto constants (AES S-box, RSA, ChaCha), file enumeration APIs (FindFirstFile/opendir), and vssadmin/wbadmin shadow-copy deletion; get_function on the encryption routine and key handling.",
+	AndroidBias: "Favor (Android): get_manifest for DEVICE_ADMIN / BIND_ACCESSIBILITY_SERVICE / SYSTEM_ALERT_WINDOW (lockers) and storage permissions; search for Cipher.getInstance, SecretKeySpec, file walks over Environment.getExternalStorageDirectory / MediaStore, DevicePolicyManager.lockNow / resetPassword, full-screen overlay activities, and ransom-note text in res/values/strings.xml or layouts.",
 	Objectives: []Objective{
 		{"crypto-keygen", "Identify the encryption algorithm and key generation / exchange scheme"},
 		{"file-enum-encrypt", "Locate the file-enumeration + encryption routine and what it targets"},
@@ -108,9 +112,10 @@ var ransomware = Playbook{
 }
 
 var infostealer = Playbook{
-	Name:      "Infostealer",
-	STIXTypes: []string{"spyware", "keylogger", "screen-capture"},
-	ToolBias:  "Favor: get_strings for browser/credential paths (Login Data, cookies, Local State), crypto-wallet paths, and exfil endpoints (http, Telegram bot API, Discord webhooks); search for keylogging (SetWindowsHookEx, GetAsyncKeyState) and screenshot APIs.",
+	Name:        "Infostealer",
+	STIXTypes:   []string{"spyware", "keylogger", "screen-capture"},
+	ToolBias:    "Favor: get_strings for browser/credential paths (Login Data, cookies, Local State), crypto-wallet paths, and exfil endpoints (http, Telegram bot API, Discord webhooks); search for keylogging (SetWindowsHookEx, GetAsyncKeyState) and screenshot APIs.",
+	AndroidBias: "Favor (Android): get_manifest for READ_SMS/RECEIVE_SMS, READ_CONTACTS, READ_CALL_LOG, accessibility and notification-listener services (credential and OTP capture), overlay (SYSTEM_ALERT_WINDOW) and QUERY_ALL_PACKAGES (target-app lists); search for SmsManager, ContentResolver queries on content://sms / contacts, AccessibilityEvent text capture, getInstalledPackages, clipboard listeners, WebView overlay injection, and exfil endpoints (http(s)://, Telegram bot API, Firebase).",
 	Objectives: []Objective{
 		{"browser-creds", "Identify targeted browsers and credential/cookie paths"},
 		{"wallets", "Find crypto-wallet paths and targeted apps"},
@@ -127,9 +132,10 @@ var infostealer = Playbook{
 }
 
 var ratBackdoor = Playbook{
-	Name:      "RAT / Backdoor",
-	STIXTypes: []string{"remote-access-trojan", "backdoor", "bot"},
-	ToolBias:  "Favor: search for the command dispatch table (large switch/if-else on a command id or string), C2 protocol handling (socket/send/recv, HTTP beaconing), and persistence; get_function on the command handler.",
+	Name:        "RAT / Backdoor",
+	STIXTypes:   []string{"remote-access-trojan", "backdoor", "bot"},
+	ToolBias:    "Favor: search for the command dispatch table (large switch/if-else on a command id or string), C2 protocol handling (socket/send/recv, HTTP beaconing), and persistence; get_function on the command handler.",
+	AndroidBias: "Favor (Android): trace from BOOT_COMPLETED receivers and foreground/persistent services to the C2 client; search for the command dispatcher (switch on a command string/id), sockets / OkHttp / WebSocket / Firebase Cloud Messaging handlers, Runtime.exec, DexClassLoader / InMemoryDexClassLoader (payload loading), MediaRecorder / Camera / location capture, and accessibility-driven remote control (dispatchGesture, performGlobalAction).",
 	Objectives: []Objective{
 		{"c2-protocol", "Determine the C2 protocol and beacon format"},
 		{"command-dispatch", "Map the command dispatch table (supported commands)"},
@@ -144,9 +150,10 @@ var ratBackdoor = Playbook{
 }
 
 var generic = Playbook{
-	Name:      "Generic Malware",
-	STIXTypes: []string{"trojan", "dropper", "downloader", "adware", "rootkit", "bootkit", "webshell", "virus", "worm", "unknown"},
-	ToolBias:  "Broad sweep: get_metadata, get_imports for capability hints, get_strings for URLs/paths/commands, search for persistence and anti-analysis; get_function on entry points and any suspicious routine.",
+	Name:        "Generic Malware",
+	STIXTypes:   []string{"trojan", "dropper", "downloader", "adware", "rootkit", "bootkit", "webshell", "virus", "worm", "unknown"},
+	ToolBias:    "Broad sweep: get_metadata, get_imports for capability hints, get_strings for URLs/paths/commands, search for persistence and anti-analysis; get_function on entry points and any suspicious routine.",
+	AndroidBias: "Broad sweep (Android): get_metadata and get_manifest for permissions and entry components; search for URLs/hosts, DexClassLoader / reflection-based loading of assets (droppers), PackageInstaller / REQUEST_INSTALL_PACKAGES, AccessibilityService, SmsManager, Runtime.exec, root checks and emulator/anti-analysis checks (Build.FINGERPRINT, ro.kernel.qemu, Debug.isDebuggerConnected); read the Application class and launcher activity first.",
 	Objectives: []Objective{
 		{"persistence", "Establish persistence mechanism(s)"},
 		{"c2-network", "Identify C2 / network endpoints"},
@@ -204,7 +211,7 @@ var vulnScript = Playbook{
 var vulnAndroid = Playbook{
 	Name:     "Vuln — Android (APK)",
 	vuln:     true,
-	ToolBias: "Favor: read_file on AndroidManifest.xml (exported components, permissions, minSdk, debuggable/allowBackup); list_files to map smali/java; search for exported Activities/Services/Receivers/Providers reachable without permission, intent handling that trusts extras, insecure crypto (ECB, hardcoded keys/IVs, static seeds), insecure storage (world-readable files, plaintext prefs), WebView misuse (setJavaScriptEnabled + addJavascriptInterface, loadUrl with untrusted input), and hardcoded secrets/API keys.",
+	ToolBias: "Favor: get_manifest exported_only=true for the cross-app attack surface (exported components, guarding permissions, intent filters, provider authorities), then read_file on each handler; find_usages to follow intent extras to sinks; search for exported Activities/Services/Receivers/Providers reachable without permission, intent handling that trusts extras, insecure crypto (ECB, hardcoded keys/IVs, static seeds), insecure storage (world-readable files, plaintext prefs), WebView misuse (setJavaScriptEnabled + addJavascriptInterface, loadUrl with untrusted input), and hardcoded secrets/API keys.",
 	Objectives: []Objective{
 		{"exported-components", "Enumerate exported components and whether they're reachable by other apps without permission (CWE-926)"},
 		{"intent-handling", "Assess intent/extras handling for injection or privilege issues (CWE-927), including PendingIntent misuse"},
@@ -218,4 +225,13 @@ var vulnAndroid = Playbook{
 		{"findings", "Vulnerabilities", "Per bug: CWE, severity, component/file, the code path, and how it's reached."},
 		{"exploitability", "Exploitability", "Reachability of each issue (cross-app, remote, local) and impact; honest assessment."},
 	},
+}
+
+// BiasFor returns the tool-bias hint for a project kind: AndroidBias on APK
+// projects when the playbook has one, ToolBias otherwise.
+func (p Playbook) BiasFor(kind string) string {
+	if kind == "APK" && p.AndroidBias != "" {
+		return p.AndroidBias
+	}
+	return p.ToolBias
 }

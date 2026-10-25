@@ -66,7 +66,7 @@ func TestEngineFullFlow(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project) // highlight tool unused here
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode) // highlight tool unused here
 
 	eng := NewEngine(sess, inv, reg, script)
 	eng.Start()
@@ -127,7 +127,7 @@ func TestStreamingAndReviewMemory(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 
 	var streamed strings.Builder
@@ -190,7 +190,7 @@ func TestProviderRefusalPausesInPlace(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 	eng.Start()
 
@@ -248,7 +248,7 @@ func classifyOnlyEngine(t *testing.T, autonomy app.Autonomy) *Engine {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 	eng.Start()
 	return eng
@@ -290,7 +290,7 @@ func TestCollaborativeReportInterview(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 	eng.Start()
 
@@ -356,7 +356,7 @@ func TestSynthesisRunsAfterRoundCap(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 	eng.maxRounds = 3 // force the investigation to exhaust the cap quickly
 	eng.Start()
@@ -406,7 +406,7 @@ func TestAskUserSuspendResume(t *testing.T) {
 	}
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	eng := NewEngine(sess, inv, reg, script)
 	eng.Start()
 

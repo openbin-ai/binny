@@ -21,7 +21,7 @@ func qaSession() *app.Session {
 func qaEngine(sess *app.Session) (*Engine, *Investigation) {
 	inv := NewInvestigation()
 	reg := tools.NewRegistry()
-	registerOutputTools(reg, inv, nil, sess.Project)
+	registerOutputTools(reg, inv, nil, sess.Project, sess.Mode)
 	return NewEngine(sess, inv, reg, &scriptedProvider{}), inv
 }
 
