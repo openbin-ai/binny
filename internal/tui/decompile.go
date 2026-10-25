@@ -342,11 +342,11 @@ func (m *Model) handleDecompDone(msg decompDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.attachLocal(msg.meta)
 	if msg.meta.Kind == store.KindAPK {
-		m.append(okLine(fmt.Sprintf("Attached local APK project %q (%s). The decompiled source is served from disk — type intel then /investigate, or /ask. /upload also creates it as an OpenAPK project.",
+		m.append(okLine(fmt.Sprintf("Attached local APK project %q (%s). The decompiled source is served from disk — tell me what to look for then /start (direct) or /investigate (autopilot). /upload also creates it as an OpenAPK project.",
 			msg.meta.Name, orDefault(msg.meta.PackageName, "unknown package"))))
 		return m, nil
 	}
-	m.append(okLine(fmt.Sprintf("Attached local project %q (%s). Analysis is served from disk — type intel then /investigate, or /ask.",
+	m.append(okLine(fmt.Sprintf("Attached local project %q (%s). Analysis is served from disk — tell me what to look for then /start (direct) or /investigate (autopilot).",
 		msg.meta.Name, orDefault(msg.meta.Language, "unknown language"))))
 	return m, nil
 }

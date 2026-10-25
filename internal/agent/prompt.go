@@ -232,7 +232,14 @@ func qaKickoff(sess *app.Session, report *api.Report) string {
 		fmt.Fprintf(&b, "- The raw sample IS attached (%s) — `run` works, so you can execute static tooling (readelf/objdump/python3/radare2) and PoC scripts against /sample.\n", sess.SamplePath)
 	}
 
-	b.WriteString("- You don't need to produce a report. Only record_finding / add_ioc / write_report_section if the analyst explicitly asks you to capture something — and any recorded finding/IOC still needs a real evidence_ref. /save pushes the report if they ask.\n")
+	if sess.Mode == app.ModeVuln {
+		b.WriteString("- VULN MODE: you're auditing for vulnerabilities, not malware — no classification, no IOCs. When the analyst asks you to capture a bug, record_finding with the full structured fields (cwe, severity, reachability, source→sink, remediation); it's refused without a proven path at high/critical. Otherwise just answer.\n")
+		if len(sess.VulnFocus) > 0 {
+			fmt.Fprintf(&b, "- The analyst scoped this to: %s. Keep to those classes unless they widen it.\n", strings.Join(sess.VulnFocus, ", "))
+		}
+	} else {
+		b.WriteString("- You don't need to produce a report. Only record_finding / add_ioc / write_report_section if the analyst explicitly asks you to capture something — and any recorded finding/IOC still needs a real evidence_ref. /save pushes the report if they ask.\n")
+	}
 
 	if report != nil {
 		title := report.Title

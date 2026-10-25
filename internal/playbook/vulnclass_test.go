@@ -42,3 +42,43 @@ func TestVulnClassesWellFormed(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectVulnIntent(t *testing.T) {
+	yes := []string{
+		"this is a vulnerability research engagement, find memory bugs",
+		"look for buffer overflows in the parser",
+		"security audit of the exported components",
+		"hunt for sql injection and hardcoded secrets",
+	}
+	for _, s := range yes {
+		if ok, _ := DetectVulnIntent(s); !ok {
+			t.Errorf("DetectVulnIntent(%q) = false, want true", s)
+		}
+	}
+	no := []string{
+		"this is ransomware, classify it and pull IOCs",
+		"analyze the C2 protocol and recover the config",
+		"",
+	}
+	for _, s := range no {
+		if ok, _ := DetectVulnIntent(s); ok {
+			t.Errorf("DetectVulnIntent(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestDetectVulnClasses(t *testing.T) {
+	got := DetectVulnClasses("look for buffer overflows and weak crypto, also any hardcoded secrets")
+	want := map[string]bool{"memory": true, "crypto": true, "secrets": true}
+	if len(got) != 3 {
+		t.Fatalf("got %v, want 3 classes", got)
+	}
+	for _, k := range got {
+		if !want[k] {
+			t.Errorf("unexpected class %q", k)
+		}
+	}
+	if len(DetectVulnClasses("just have a look around")) != 0 {
+		t.Error("no class words should detect none")
+	}
+}

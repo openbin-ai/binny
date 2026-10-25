@@ -14,6 +14,7 @@ import (
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/app"
 	"openbin.ai/binny/internal/config"
+	"openbin.ai/binny/internal/playbook"
 	"openbin.ai/binny/internal/store"
 )
 
@@ -31,6 +32,7 @@ func (m *Model) requestStart(note string) {
 		m.append(errLine("No project attached — /project to pick one."))
 		return
 	}
+	m.applyDetectedIntent(note)
 	if !m.sess.Project.Ready() {
 		m.append(errLine(fmt.Sprintf("Project status is %s — needs READY. Decompile it first.", m.sess.Project.Status)))
 		return
@@ -508,4 +510,28 @@ func (m *Model) cmdSave() {
 		return
 	}
 	m.append(okLine(fmt.Sprintf("Saved %d sections to the project report (DRAFT — review before publishing).", len(sections))))
+}
+
+// applyDetectedIntent reads the analyst's intel (+ any opening note) and, unless
+// the mode was set explicitly with /mode, switches to VULN mode and seeds a
+// class focus when the text clearly asks for vulnerability research. This is why
+// "this is a vuln assessment, find buffer overflows" no longer runs malware
+// triage. It also seeds focus in vuln mode even when the mode was explicit.
+func (m *Model) applyDetectedIntent(opening string) {
+	text := strings.TrimSpace(m.sess.Intel + "\n" + opening)
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	if !m.modeExplicit && m.sess.Mode != app.ModeVuln {
+		if ok, cue := playbook.DetectVulnIntent(text); ok {
+			m.sess.Mode = app.ModeVuln
+			m.append(okLine(fmt.Sprintf("Detected vulnerability-research intent (%q) → switched to VULN mode. /mode malware to override.", cue)))
+		}
+	}
+	if m.sess.Mode == app.ModeVuln && len(m.sess.VulnFocus) == 0 {
+		if classes := playbook.DetectVulnClasses(text); len(classes) > 0 {
+			m.sess.VulnFocus = classes
+			m.append(okLine("Scoped the hunt from your brief → focus: " + focusLabel(classes) + ". /focus all to widen, /focus <class> to change."))
+		}
+	}
 }

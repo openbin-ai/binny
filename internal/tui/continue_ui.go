@@ -180,6 +180,7 @@ func (m *Model) viewContinue() string {
 // if any, is handed to BINNY as claims to check, not established work. Nothing
 // is spent until the analyst asks their first question.
 func (m *Model) doQA() tea.Cmd {
+	m.applyDetectedIntent("")
 	eng, inv, err := agent.Build(m.sess, m.sess.API)
 	if err != nil {
 		m.screen = screenREPL
@@ -203,7 +204,7 @@ func (m *Model) doQA() tea.Cmd {
 	m.sess.Phase = m.engine.Phase()
 	m.resizeViewport()
 	p := m.sess.Project
-	m.append(binnyLine(fmt.Sprintf("Attached to %q (%s, %s) — Q&A mode.", p.Name, p.Kind, p.Status)))
+	m.append(binnyLine(fmt.Sprintf("Attached to %q (%s, %s) — direct mode (%s). Tell me what to look at; I'll use my tools as you direct.", p.Name, p.Kind, p.Status, modeLabel(m.sess.Mode))))
 	m.append(m.toLines(lines)...)
 	if !p.Ready() {
 		m.append(warnLine(fmt.Sprintf(

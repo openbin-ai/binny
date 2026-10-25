@@ -297,3 +297,68 @@ func VulnClassList() string {
 	}
 	return b.String()
 }
+
+// vulnIntentCues are phrases that, in an opening message or intel, signal the
+// analyst wants VULNERABILITY RESEARCH rather than malware analysis.
+var vulnIntentCues = []string{
+	"vulnerab", "vuln research", "vuln mode", "find vulns", "find bugs", "security bug",
+	"security audit", "security review", "security assessment", "pentest", "pen test",
+	"exploitab", "attack surface", "source to sink", "source-to-sink",
+	"memory corruption", "buffer overflow", "out-of-bounds", "out of bounds",
+	"use after free", "use-after-free", "double free", "integer overflow",
+	"command injection", "code injection", "sql injection", "path traversal",
+	"insecure deserial", "hardcoded secret", "hard-coded secret", "weak crypto",
+	"cwe", "cve", "coordinated disclosure", "0day", "0-day", "zero day",
+}
+
+// malwareIntentCues pull the other way — if present without vuln cues, keep
+// malware mode (so "analyze this malware for vulnerabilities it exploits"
+// doesn't misfire, and a plain malware brief stays malware).
+var malwareIntentCues = []string{
+	"malware", "ransomware", "infostealer", "stealer", "trojan", "rat ", "c2", "c&c",
+	"iocs", "ioc ", "family", "campaign", "apt", "classify", "detection signature",
+}
+
+// DetectVulnIntent reports whether free-text intent asks for vulnerability
+// research. A vuln cue wins unless the text is clearly a malware brief with no
+// vuln cue. Returns the matched cue for a user-facing notice.
+func DetectVulnIntent(text string) (bool, string) {
+	t := strings.ToLower(text)
+	for _, cue := range vulnIntentCues {
+		if strings.Contains(t, cue) {
+			return true, strings.TrimSpace(cue)
+		}
+	}
+	return false, ""
+}
+
+// DetectVulnClasses scans text for vulnerability-class names/aliases and returns
+// the matched class keys (deduped, in registry order). Drives auto-/focus from
+// an opening brief like "look for buffer overflows and weak crypto".
+func DetectVulnClasses(text string) []string {
+	t := strings.ToLower(text)
+	var keys []string
+	seen := map[string]bool{}
+	for _, c := range vulnClasses {
+		matched := strings.Contains(t, strings.ToLower(c.Name))
+		if !matched {
+			for _, a := range c.Aliases {
+				// Only multi-char, word-ish aliases, to avoid "int"/"mem" noise;
+				// match hyphen- or space-separated spellings ("weak-crypto" ↔ "weak crypto").
+				if len(a) < 5 {
+					continue
+				}
+				al := strings.ToLower(a)
+				if strings.Contains(t, al) || strings.Contains(t, strings.ReplaceAll(al, "-", " ")) {
+					matched = true
+					break
+				}
+			}
+		}
+		if matched && !seen[c.Key] {
+			seen[c.Key] = true
+			keys = append(keys, c.Key)
+		}
+	}
+	return keys
+}

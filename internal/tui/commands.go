@@ -171,6 +171,7 @@ func (m *Model) cmdMode(args []string) []line {
 	if m.engineStarted && want != s.Mode {
 		return []line{errLine("Can't switch mode mid-session — the toolset and report type are fixed when BINNY starts. /quit and relaunch to change mode.")}
 	}
+	m.modeExplicit = true
 	s.Mode = want
 	if want == app.ModeMalware {
 		s.VulnFocus = nil
@@ -263,7 +264,8 @@ func providerID(m *Model) string {
 func helpLines() []line {
 	return []line{
 		sysLine("Commands:"),
-		sysLine("  /investigate           start BINNY's analysis (triage → playbook → investigate → draft)"),
+		sysLine("  /start                 direct mode — talk to BINNY and direct it; it uses its tools on demand (no autopilot)"),
+		sysLine("  /investigate           autopilot — triage → playbook → investigate → draft a report"),
 		sysLine("  /ask                   Q&A mode — question the sample on demand (verify a claim, build a PoC, inspect a function)"),
 		sysLine("  /continue              resume from a checkpoint pause (Supervised/Collaborative)"),
 		sysLine("  /autonomy <mode>       run mode: autonomous | supervised | collaborative"),

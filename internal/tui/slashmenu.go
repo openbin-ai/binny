@@ -26,8 +26,9 @@ type slashCmd struct {
 // slashCommands is the palette, in display order. Keep in sync with the
 // dispatch in submitSlash / handleSlash.
 var slashCommands = []slashCmd{
-	{"/investigate", "start BINNY's analysis (triage → investigate → draft)", false},
-	{"/ask", "Q&A mode — question the sample on demand (verify, PoC, a function)", false},
+	{"/start", "direct mode — just talk to BINNY; it uses its tools as you direct", false},
+	{"/investigate", "autopilot — triage → playbook → investigate → draft report", false},
+	{"/focus", "vuln only: scope the hunt to classes (memory, auth, crypto, …)", false},
 	{"/continue", "resume from a checkpoint pause", false},
 	{"/stop", "stop investigating early and synthesize now", false},
 	{"/autonomy", "set run mode (autonomous | supervised | collaborative)", true},

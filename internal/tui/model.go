@@ -103,6 +103,7 @@ type Model struct {
 	engine        *agent.Engine
 	inv           *agent.Investigation
 	engineStarted bool // Start() called — follow-up text continues (Ask), never restarts
+	modeExplicit  bool // user set the mode with /mode — suppresses auto-detection from intel
 	agentRunning  bool // engine loop in flight
 	awaiting      bool // engine suspended on ask_user; next input answers it
 	reviewIdle    bool // draft ready / conversational — free text is a follow-up
@@ -403,7 +404,8 @@ func (m *Model) enterREPL() {
 			"No key for provider %q — run /key to set one (BYOK), or /model to switch provider.",
 			m.sess.Provider.ID)))
 	}
-	m.append(sysLine("Optionally type intel (source, suspected family, hashes), then /investigate to start."))
+	m.append(sysLine("Type what you want (e.g. \"vuln research — find buffer overflows\") then /start to direct BINNY, or /investigate for autopilot."))
+	m.append(sysLine("Mode auto-switches to VULN when your brief asks for it; /mode vuln and /focus <class> set it by hand."))
 	m.append(sysLine("During a run: Esc interrupts, /stop cuts to the draft, /findings & /draft show progress. /help for commands."))
 	m.input.Focus()
 }
@@ -630,10 +632,27 @@ func (m *Model) submitSlash(val string) (tea.Model, tea.Cmd) {
 		}
 		m.requestStart("")
 		return m, nil
-	case "/ask", "/qa":
+	case "/start", "/ask", "/qa", "/chat":
 		if m.engineStarted {
-			m.append(sysLine("A session is already running — just type your question. (/ask starts a fresh Q&A session; use /project to re-pick the sample to switch.)"))
+			m.append(sysLine("A session is already running — just type to continue. (/project to re-pick the sample.)"))
 			return m, nil
+		}
+		if m.sess.Project == nil {
+			m.append(errLine("No project attached — /project to pick one, or /decompile <path> for a local file."))
+			return m, nil
+		}
+		if !m.sess.ProviderReady() {
+			m.append(errLine("No LLM key for the active provider — /key to set one (BYOK)."))
+			return m, nil
+		}
+		// Any text after the command is the opening direction — keep it as intel
+		// so mode/focus detection sees it before the engine is built.
+		if rest := strings.TrimSpace(strings.TrimPrefix(val, fields[0])); rest != "" {
+			if strings.TrimSpace(m.sess.Intel) == "" {
+				m.sess.Intel = rest
+			} else {
+				m.sess.Intel += "\n" + rest
+			}
 		}
 		return m, m.doQA()
 	case "/stop":
