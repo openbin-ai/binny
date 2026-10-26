@@ -11,9 +11,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -21,6 +23,7 @@ import (
 	"openbin.ai/binny/internal/app"
 	"openbin.ai/binny/internal/auth"
 	"openbin.ai/binny/internal/config"
+	"openbin.ai/binny/internal/serve"
 	"openbin.ai/binny/internal/tui"
 )
 
@@ -40,10 +43,20 @@ func run() error {
 	// agent. Optional: without it, extraction tools are simply unavailable.
 	samplePath := flag.String("sample", "", "path to the raw sample on disk (enables active extraction)")
 	showVersion := flag.Bool("version", false, "print the binny version and exit")
+	serveMode := flag.Bool("serve", false, "run as the local HTTP backend for BINNY Desktop instead of the terminal UI")
+	serveAddr := flag.String("serve-addr", "127.0.0.1:8899", "address for --serve to listen on (loopback only)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("binny " + version)
 		return nil
+	}
+
+	// --serve: the engine behind BINNY Desktop. A new mode of this same binary;
+	// the TUI below stays the default. See docs/DESKTOP.md.
+	if *serveMode {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		return serve.Run(ctx, serve.Options{Addr: *serveAddr, Version: version})
 	}
 
 	ep := config.LoadEndpoints()
