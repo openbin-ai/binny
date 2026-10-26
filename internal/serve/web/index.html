@@ -110,6 +110,7 @@
   <button id="tExplorer">Explorer</button>
   <button id="tCode">Code</button>
   <button id="tFindings">Findings<span id="findCount"></span></button>
+  <button id="tReport">Report</button>
   <button id="tTheme" title="theme">◐</button>
 </header>
 
@@ -146,6 +147,16 @@
     <h3>Findings</h3>
     <div class="findings" id="findings"><div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div></div>
   </aside>
+
+  <aside class="drawer" id="reportDrawer">
+    <h3>Report
+      <span style="float:right;display:flex;gap:6px">
+        <button id="copyReport" style="padding:2px 8px;font-size:11px">Copy</button>
+        <button id="dlReport" style="padding:2px 8px;font-size:11px">Download .md</button>
+      </span>
+    </h3>
+    <div class="codewrap"><pre class="code" id="report" style="padding:12px;white-space:pre-wrap"></pre></div>
+  </aside>
 </main>
 
 <script>
@@ -158,6 +169,7 @@ const state = {
   model: null,        // {label, baseURL?, providerId?, model}
   openFile: null,     // {path, content}
   messages: [],       // {role, text}
+  findings: [],       // {title, severity, cwe, file, line, reachability, note}
   streaming: false,
 };
 
@@ -210,6 +222,7 @@ $("#modeSeg").addEventListener("click", e=>{
 $("#tExplorer").onclick = ()=>toggle("#explorerDrawer","#tExplorer");
 $("#tCode").onclick     = ()=>toggle("#codeDrawer","#tCode");
 $("#tFindings").onclick = ()=>toggle("#findingsDrawer","#tFindings");
+$("#tReport").onclick   = ()=>{ $("#report").textContent = buildReport(); toggle("#reportDrawer","#tReport"); };
 function toggle(drawer, btn){ $(drawer).classList.toggle("open"); $(btn).classList.toggle("on", $(drawer).classList.contains("open")); }
 $("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
 
@@ -275,6 +288,7 @@ const SEV_RANK = {critical:0,high:1,medium:2,low:3,info:4};
 function addFinding(f){
   if(findCount===0) $("#findings").innerHTML = "";
   findCount++; $("#findCount").textContent = "("+findCount+")";
+  state.findings.push(f);
   const sev = (f.severity||"info").toLowerCase();
   const el = document.createElement("div"); el.className = "finding s-"+sev;
   el.dataset.rank = SEV_RANK[sev] ?? 5;
@@ -290,6 +304,43 @@ function addFinding(f){
   host.insertBefore(el, after||null);
   if(!$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
 }
+
+/* ---- report (CVE-style VRR, assembled offline from findings) ---- */
+function buildReport(){
+  const fs = [...state.findings].sort((a,b)=>(SEV_RANK[(a.severity||"info")]??5)-(SEV_RANK[(b.severity||"info")]??5));
+  const isVuln = state.mode==="VULN_RESEARCH";
+  const kind = isVuln ? "Vulnerability Research Report" : "Malware Analysis Report";
+  const now = new Date().toISOString().slice(0,10);
+  let m = `# BINNY ${isVuln?"VRR":"MAR"} — ${kind}\n\n`;
+  m += `Date: ${now}\nMode: ${state.mode}`;
+  if(isVuln && state.focus.size) m += `\nScope: ${[...state.focus].join(", ")}`;
+  if(state.openFile) m += `\nTarget: ${state.openFile.path}`;
+  m += `\n\n## Summary\n\n`;
+  if(!fs.length){ return m + "_No findings recorded yet._\n"; }
+  m += `| ID | Severity | CWE | Finding | Location |\n|----|----------|-----|---------|----------|\n`;
+  fs.forEach((f,i)=>{
+    const id = (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
+    const loc = f.file ? f.file+(f.line?":"+f.line:"") : "—";
+    m += `| ${id} | ${(f.severity||"info").toUpperCase()} | ${f.cwe||"—"} | ${f.title||"(untitled)"} | ${loc} |\n`;
+  });
+  m += `\n## Findings\n`;
+  fs.forEach((f,i)=>{
+    const id = (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
+    m += `\n### ${id} — ${f.title||"(untitled)"}\n\n`;
+    m += `- Severity: ${(f.severity||"info").toUpperCase()}\n`;
+    if(f.cwe) m += `- CWE: ${f.cwe}\n`;
+    if(f.reachability) m += `- Reachability: ${f.reachability}\n`;
+    if(f.file) m += `- Location: ${f.file}${f.line?":"+f.line:""}\n`;
+    m += `\n${f.note||""}\n`;
+  });
+  return m;
+}
+function download(name, text){
+  const blob = new Blob([text],{type:"text/markdown"}); const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+}
+$("#dlReport").onclick   = ()=>download("binny-report.md", buildReport());
+$("#copyReport").onclick = ()=>{ navigator.clipboard?.writeText(buildReport()); $("#copyReport").textContent="Copied"; setTimeout(()=>$("#copyReport").textContent="Copy",1200); };
 
 /* ---- chat ---- */
 function systemPrompt(){
