@@ -33,12 +33,10 @@ const (
 	toolPreviewSpan = 300
 )
 
-// agentTools are the read-only tools exposed to the model over the served tree.
-// Returns nil when no tree is served (plain chat, no tools).
+// agentTools exposes the tools the model may call. read_file/search_code/
+// list_files require a served tree; record_finding is always available so the
+// agent can pin structured findings into the Findings drawer.
 func (s *server) agentTools() []llm.Tool {
-	if s.opts.Dir == "" {
-		return nil
-	}
 	obj := func(props map[string]any, required ...string) map[string]any {
 		m := map[string]any{"type": "object", "properties": props}
 		if len(required) > 0 {
@@ -48,23 +46,42 @@ func (s *server) agentTools() []llm.Tool {
 	}
 	str := map[string]any{"type": "string"}
 	intp := map[string]any{"type": "integer"}
-	return []llm.Tool{
-		{
+
+	tools := []llm.Tool{{
+		Name: "record_finding",
+		Description: "Pin a structured finding to the Findings panel. Use for each distinct issue. " +
+			"severity is one of info|low|medium|high|critical. Include file and line when you have them, " +
+			"a CWE id when applicable, and a one-line note with the evidence.",
+		InputSchema: obj(map[string]any{
+			"title":        str,
+			"severity":     map[string]any{"type": "string", "enum": []string{"info", "low", "medium", "high", "critical"}},
+			"cwe":          str,
+			"file":         str,
+			"line":         intp,
+			"reachability": map[string]any{"type": "string", "enum": []string{"proven", "likely", "unproven", "ruled_out"}},
+			"note":         str,
+		}, "title", "severity", "note"),
+	}}
+	if s.opts.Dir == "" {
+		return tools
+	}
+	return append(tools,
+		llm.Tool{
 			Name:        "list_files",
-			Description:  "List files in the decompiled tree. Optionally scope to a subdirectory (dir) and/or filter by a path substring (filter).",
+			Description: "List files in the decompiled tree. Optionally scope to a subdirectory (dir) and/or filter by a path substring (filter).",
 			InputSchema: obj(map[string]any{"dir": str, "filter": str}),
 		},
-		{
+		llm.Tool{
 			Name:        "read_file",
 			Description: "Read a file from the tree by its path (as returned by list_files/search_code). Optional start_line (1-based) and max_lines.",
 			InputSchema: obj(map[string]any{"path": str, "start_line": intp, "max_lines": intp}, "path"),
 		},
-		{
+		llm.Tool{
 			Name:        "search_code",
 			Description: "Regex (RE2) search across the tree. Returns path:line: matching lines. Optional dir to scope.",
 			InputSchema: obj(map[string]any{"regex": str, "dir": str}, "regex"),
 		},
-	}
+	)
 }
 
 // runTool executes one tool call against the served tree. Returns the textual
@@ -87,6 +104,13 @@ func (s *server) runTool(name string, input json.RawMessage) (string, bool) {
 		var in struct{ Regex, Dir string }
 		_ = json.Unmarshal(input, &in)
 		return s.toolSearch(in.Regex, in.Dir)
+	case "record_finding":
+		var in struct{ Title, Severity string }
+		_ = json.Unmarshal(input, &in)
+		if in.Title == "" || in.Severity == "" {
+			return "record_finding needs at least title and severity", true
+		}
+		return "recorded [" + in.Severity + "] " + in.Title, false
 	default:
 		return "unknown tool: " + name, true
 	}
@@ -245,6 +269,14 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		for _, c := range calls {
 			send(map[string]any{"type": "tool_call", "name": c.Name, "input": json.RawMessage(c.Input)})
 			out, isErr := s.runTool(c.Name, c.Input)
+			// A successful finding becomes its own event for the Findings drawer.
+			if c.Name == "record_finding" && !isErr {
+				var f map[string]any
+				if json.Unmarshal(c.Input, &f) == nil {
+					f["type"] = "finding"
+					send(f)
+				}
+			}
 			send(map[string]any{"type": "tool_result", "name": c.Name, "ok": !isErr, "preview": preview(out)})
 			results = append(results, llm.ToolResult(c.ID, out, isErr))
 		}

@@ -136,7 +136,11 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    extension — engine support exists: `Provide`/`Ask`/`ContinuePastCap`/`Stop`).
 6. ⏭ **Decompile from the GUI:** drag-drop APK/binary → worker → progress → tree
    (binny already runs the JADX/Ghidra Docker workers).
-7. ⏭ **Findings + report drawers**, inline code cards.
+7. 🟡 **Findings + report drawers**, inline code cards. Findings: ✅ — a
+   `record_finding` tool pins structured findings (title/severity/CWE/file:line/
+   reachability/note) that stream as `finding` SSE events into a severity-sorted
+   Findings drawer; click a finding to open its file. Report drawer + inline code
+   cards: ⏭.
 8. ⏭ **Electron packaging** + macOS notarization; `release-desktop.yml`. (Today
    the UI runs in a browser at the `--serve` address; Electron is the shell.)
 

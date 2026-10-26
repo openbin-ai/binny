@@ -84,3 +84,38 @@ func TestRunAgentLoop(t *testing.T) {
 		t.Errorf("loop events incomplete: call=%v result=%v chunk=%v done=%v\n%v", sawCall, sawResult, sawChunk, sawDone, events)
 	}
 }
+
+// findingProvider records one finding, then stops.
+type findingProvider struct{ turn int }
+
+func (f *findingProvider) Name() string { return "fake" }
+func (f *findingProvider) Stream(ctx context.Context, req llm.Request, onText func(string)) (*llm.Response, error) {
+	f.turn++
+	if f.turn == 1 {
+		return &llm.Response{StopReason: llm.StopToolUse, Blocks: []llm.Block{{
+			Kind: llm.BlockToolUse, ToolID: "f1", ToolName: "record_finding",
+			Input: json.RawMessage(`{"title":"Unvalidated URL load","severity":"high","cwe":"CWE-939","file":"sources/com/evil/Main.java","line":6,"note":"args[0] flows to loadUrl"}`),
+		}}}, nil
+	}
+	return &llm.Response{StopReason: llm.StopEndTurn, Model: "fake", Blocks: []llm.Block{llm.TextBlock("done")}}, nil
+}
+
+func TestRecordFindingEmitsEvent(t *testing.T) {
+	s := &server{opts: Options{Dir: sampleTree(t)}}
+	var finding map[string]any
+	send := func(ev map[string]any) {
+		if ev["type"] == "finding" {
+			finding = ev
+		}
+	}
+	s.runAgentLoop(context.Background(), &findingProvider{}, llm.Request{
+		Messages: []llm.Message{llm.UserText("audit")}, Tools: s.agentTools(),
+	}, send)
+
+	if finding == nil {
+		t.Fatal("no finding event emitted")
+	}
+	if finding["severity"] != "high" || finding["title"] != "Unvalidated URL load" || finding["cwe"] != "CWE-939" {
+		t.Errorf("finding fields = %+v", finding)
+	}
+}

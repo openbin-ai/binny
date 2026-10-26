@@ -73,6 +73,17 @@
   .tool-card .tname{color:var(--accent)} .tool-card .targ{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .tool-card .body{display:none;padding:0 10px 9px;white-space:pre-wrap;color:var(--muted);max-height:220px;overflow:auto}
   .tool-card.open .body{display:block}
+  .findings{overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+  .finding{border:1px solid var(--border);border-left-width:4px;border-radius:8px;background:var(--panel2);padding:9px 11px}
+  .finding .ft{font-weight:600;font-size:13px}
+  .finding .fm{font-size:11px;color:var(--muted);margin:3px 0;font-family:var(--mono)}
+  .finding .fn{font-size:12.5px;line-height:1.5}
+  .sev{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:4px;color:#07120e}
+  .sev-critical{background:#ff5c7a;color:#fff} .sev-high{background:#ff8a5c;color:#fff}
+  .sev-medium{background:var(--warn)} .sev-low{background:var(--accent2)} .sev-info{background:#7f8da3;color:#fff}
+  .finding.s-critical{border-left-color:#ff5c7a} .finding.s-high{border-left-color:#ff8a5c}
+  .finding.s-medium{border-left-color:var(--warn)} .finding.s-low{border-left-color:var(--accent2)} .finding.s-info{border-left-color:#7f8da3}
+  #findCount{margin-left:5px;font-size:11px;color:var(--accent2)}
   .empty{color:var(--muted);text-align:center;margin-top:12vh}
   .empty h1{font-weight:700;font-size:26px;margin:.2em 0}
   .empty .pitch{font-size:13px;max-width:420px;margin:10px auto}
@@ -98,6 +109,7 @@
   <select id="modelPick" title="model"></select>
   <button id="tExplorer">Explorer</button>
   <button id="tCode">Code</button>
+  <button id="tFindings">Findings<span id="findCount"></span></button>
   <button id="tTheme" title="theme">◐</button>
 </header>
 
@@ -128,6 +140,11 @@
   <aside class="drawer" id="codeDrawer">
     <h3 id="codeTitle">Code</h3>
     <div class="codewrap"><pre class="code" id="code"></pre></div>
+  </aside>
+
+  <aside class="drawer" id="findingsDrawer">
+    <h3>Findings</h3>
+    <div class="findings" id="findings"><div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div></div>
   </aside>
 </main>
 
@@ -192,6 +209,7 @@ $("#modeSeg").addEventListener("click", e=>{
 /* ---- drawers ---- */
 $("#tExplorer").onclick = ()=>toggle("#explorerDrawer","#tExplorer");
 $("#tCode").onclick     = ()=>toggle("#codeDrawer","#tCode");
+$("#tFindings").onclick = ()=>toggle("#findingsDrawer","#tFindings");
 function toggle(drawer, btn){ $(drawer).classList.toggle("open"); $(btn).classList.toggle("on", $(drawer).classList.contains("open")); }
 $("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
 
@@ -251,12 +269,34 @@ function renderCode(src){
 }
 function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 
+/* ---- findings ---- */
+let findCount = 0;
+const SEV_RANK = {critical:0,high:1,medium:2,low:3,info:4};
+function addFinding(f){
+  if(findCount===0) $("#findings").innerHTML = "";
+  findCount++; $("#findCount").textContent = "("+findCount+")";
+  const sev = (f.severity||"info").toLowerCase();
+  const el = document.createElement("div"); el.className = "finding s-"+sev;
+  el.dataset.rank = SEV_RANK[sev] ?? 5;
+  const loc = f.file ? (esc(f.file)+(f.line?":"+f.line:"")) : "";
+  el.innerHTML =
+    `<div class="ft"><span class="sev sev-${sev}">${esc(sev)}</span> ${esc(f.title||"(untitled)")}</div>`+
+    `<div class="fm">${[f.cwe?esc(f.cwe):"", f.reachability?esc(f.reachability):"", loc].filter(Boolean).join(" · ")}</div>`+
+    `<div class="fn">${esc(f.note||"")}</div>`;
+  if(loc && f.file){ el.style.cursor="pointer"; el.onclick=()=>openFile(f.file); }
+  // insert sorted by severity
+  const host = $("#findings"); const kids=[...host.children];
+  const after = kids.find(k=> (+k.dataset.rank) > (+el.dataset.rank));
+  host.insertBefore(el, after||null);
+  if(!$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
+}
+
 /* ---- chat ---- */
 function systemPrompt(){
   const lens = state.mode==="VULN_RESEARCH"
     ? "You are BINNY in VULNERABILITY RESEARCH mode. Hunt for exploitable bugs; for each, give CWE, severity, source→sink reachability, and remediation. Be rigorous; do not invent findings."
     : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior. Be precise and evidence-based.";
-  let s = lens + " You are a local, offline reverse-engineering assistant.";
+  let s = lens + " You are a local, offline reverse-engineering assistant. When a decompiled tree is available, use your tools (list_files, search_code, read_file) to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note).";
   if(state.mode==="VULN_RESEARCH" && state.focus.size) s += " Scope strictly to these vulnerability classes: "+[...state.focus].join(", ")+".";
   if(state.openFile) s += "\n\nThe analyst is looking at `"+state.openFile.path+"`:\n```\n"+state.openFile.content.slice(0,24000)+"\n```";
   return s;
@@ -318,6 +358,7 @@ async function send(prefix){
         if(ev.type==="chunk"){ acc += ev.text; bubble.style.display="block"; bubble.textContent = acc; scroll(); }
         else if(ev.type==="tool_call"){ pendingCard = addToolCard(msgEl, ev.name, ev.input); }
         else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent = ev.preview||""; pendingCard=null; } }
+        else if(ev.type==="finding"){ addFinding(ev); }
         else if(ev.type==="error"){ msgEl.className="msg err"; bubble.style.display="block"; bubble.textContent = ev.error; }
         else if(ev.type==="done"){ /* ev.model, ev.note */ }
       }
