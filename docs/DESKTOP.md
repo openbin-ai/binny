@@ -141,8 +141,13 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    reachability/note) that stream as `finding` SSE events into a severity-sorted
    Findings drawer; click a finding to open its file. Report drawer + inline code
    cards: ⏭.
-8. ⏭ **Electron packaging** + macOS notarization; `release-desktop.yml`. (Today
-   the UI runs in a browser at the `--serve` address; Electron is the shell.)
+8. 🟡 **Electron shell** (`desktop/`): ✅ — `main.js` starts `binny --serve` as a
+   loopback sidecar (free port, health-wait, kill on quit), opens a window on it,
+   and has a File → Open Decompiled Folder menu that restarts the sidecar on the
+   chosen tree. `preload.js` (contextIsolation) is the seam for native bridges.
+   Run: `go build -o desktop/bin/binny . && cd desktop && npm i && BINNY_BIN=./bin/binny npm start`.
+   ⏭ remaining: `electron-builder` installers, macOS notarization,
+   `release-desktop.yml`.
 
 Try the MVP:
 
