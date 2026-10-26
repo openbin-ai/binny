@@ -120,11 +120,18 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    the `internal/llm` provider layer — **fully offline against a detected local
    model**, or a configured cloud provider. Mode (Malware/Vuln) + focus chips
    shape the system prompt; the open file is sent as context. *(DONE)*
-4. ⏭ **Full staged engine stream:** replace the direct-provider chat with the
-   real engine (triage→…→review, tools, structured findings, CVE reports) over
-   SSE/WS + a typed event DTO mapping `StepResult`/stream-sink to
-   `tool_call`/`tool_result`. Session-manager goroutine driver (port the loop
-   from `internal/tui/agent.go`). The **Investigate** button lights this up.
+3b. ✅ **Agentic tool loop** (`internal/serve/agent.go`): with a served tree the
+   model gets read-only tools — `list_files`, `read_file`, `search_code` — and
+   *investigates on its own* (lists/searches/reads, then reports), streaming
+   `tool_call`/`tool_result` SSE events the UI renders as cards. The GUI
+   equivalent of the CLI's direct mode; fully offline against a tool-capable
+   local model. Tools only ever touch the served tree (traversal-guarded).
+   *(DONE)*
+4. ⏭ **Full staged engine stream:** replace this lightweight loop with the real
+   staged engine (triage→…→review, the full tool registry, structured findings,
+   CVE reports) over SSE/WS + a typed event DTO mapping `StepResult`/stream-sink
+   to the same `tool_call`/`tool_result` shape. Session-manager goroutine driver
+   (port the loop from `internal/tui/agent.go`).
 5. ⏭ **Answer/checkpoint protocol over WS** (`ask_user`, checkpoints, cap
    extension — engine support exists: `Provide`/`Ask`/`ContinuePastCap`/`Stop`).
 6. ⏭ **Decompile from the GUI:** drag-drop APK/binary → worker → progress → tree

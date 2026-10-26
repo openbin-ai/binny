@@ -346,23 +346,15 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	resp, err := provider.Stream(r.Context(), llm.Request{
+	// With a served tree the model gets read-only tools and investigates on its
+	// own (agent.go); without one it's a plain single-turn chat.
+	s.runAgentLoop(r.Context(), provider, llm.Request{
 		System:    req.System,
 		Messages:  msgs,
+		Tools:     s.agentTools(),
 		Model:     model,
 		MaxTokens: 2048,
-	}, func(delta string) {
-		send(map[string]any{"type": "chunk", "text": delta})
-	})
-	if err != nil {
-		send(map[string]any{"type": "error", "error": err.Error()})
-		return
-	}
-	send(map[string]any{
-		"type":  "done",
-		"model": resp.Model,
-		"usage": map[string]int{"input": resp.Usage.InputTokens, "output": resp.Usage.OutputTokens},
-	})
+	}, send)
 }
 
 // resolveProvider turns a chat request into a provider config: a local keyless

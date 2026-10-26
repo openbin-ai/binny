@@ -65,6 +65,14 @@
   .bubble{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;white-space:pre-wrap;word-wrap:break-word;line-height:1.55}
   .msg.user .bubble{background:var(--user)}
   .msg.err .bubble{border-color:var(--err);color:var(--err)}
+  .tools{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
+  .tool-card{border:1px solid var(--border);border-radius:8px;background:var(--panel2);font-family:var(--mono);font-size:12px}
+  .tool-card .head{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer}
+  .tool-card .dot{width:8px;height:8px;border-radius:50%;background:var(--warn)}
+  .tool-card.ok .dot{background:var(--accent2)} .tool-card.fail .dot{background:var(--err)}
+  .tool-card .tname{color:var(--accent)} .tool-card .targ{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .tool-card .body{display:none;padding:0 10px 9px;white-space:pre-wrap;color:var(--muted);max-height:220px;overflow:auto}
+  .tool-card.open .body{display:block}
   .empty{color:var(--muted);text-align:center;margin-top:12vh}
   .empty h1{font-weight:700;font-size:26px;margin:.2em 0}
   .empty .pitch{font-size:13px;max-width:420px;margin:10px auto}
@@ -111,7 +119,7 @@
       <div class="ctxbar" id="ctxbar" style="display:none"></div>
       <div class="inner">
         <textarea id="input" placeholder="Ask BINNY about this target…  (Enter to send, Shift+Enter for newline)"></textarea>
-        <button class="send" id="investigate" title="Turn the agent loose (staged engine — next phase)">Investigate</button>
+        <button class="send" id="investigate" title="Turn the agent loose on the tree (lists, searches, reads, reports)">Investigate</button>
         <button class="send" id="send">Send</button>
       </div>
     </div>
@@ -256,10 +264,21 @@ function systemPrompt(){
 function addMsg(role, text){
   $("#empty")?.remove();
   const m = document.createElement("div"); m.className="msg "+role;
-  m.innerHTML = `<div class="who">${role==="user"?"you":role==="err"?"error":"binny"}</div><div class="bubble"></div>`;
-  m.querySelector(".bubble").textContent = text;
+  const tools = role==="assistant" ? `<div class="tools"></div>` : "";
+  m.innerHTML = `<div class="who">${role==="user"?"you":role==="err"?"error":"binny"}</div>${tools}<div class="bubble"></div>`;
+  const bubble = m.querySelector(".bubble");
+  bubble.textContent = text;
+  if(role==="assistant" && !text) bubble.style.display="none";
   $("#convo").appendChild(m); scroll();
-  return m.querySelector(".bubble");
+  return m; // caller reaches .bubble / .tools
+}
+function addToolCard(msgEl, name, input){
+  const card = document.createElement("div"); card.className="tool-card";
+  const arg = input ? JSON.stringify(input).slice(0,120) : "";
+  card.innerHTML = `<div class="head"><span class="dot"></span><span class="tname">${esc(name)}</span><span class="targ">${esc(arg)}</span></div><div class="body"></div>`;
+  card.querySelector(".head").onclick = ()=>card.classList.toggle("open");
+  msgEl.querySelector(".tools").appendChild(card);
+  scroll(); return card;
 }
 function scroll(){ const c=$("#convo"); c.scrollTop=c.scrollHeight; }
 
@@ -272,7 +291,9 @@ async function send(prefix){
   ta.value=""; autoSize();
   addMsg("user", text);
   state.messages.push({role:"user", text});
-  const bubble = addMsg("assistant", "");
+  const msgEl = addMsg("assistant", "");
+  const bubble = msgEl.querySelector(".bubble");
+  let pendingCard = null;
   state.streaming = true; $("#send").disabled = $("#investigate").disabled = true;
 
   const body = {
@@ -294,9 +315,11 @@ async function send(prefix){
         const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
         if(!line.startsWith("data:")) continue;
         const ev = JSON.parse(line.slice(5).trim());
-        if(ev.type==="chunk"){ acc += ev.text; bubble.textContent = acc; scroll(); }
-        else if(ev.type==="error"){ bubble.parentElement.className="msg err"; bubble.textContent = ev.error; }
-        else if(ev.type==="done"){ /* usage available in ev.usage */ }
+        if(ev.type==="chunk"){ acc += ev.text; bubble.style.display="block"; bubble.textContent = acc; scroll(); }
+        else if(ev.type==="tool_call"){ pendingCard = addToolCard(msgEl, ev.name, ev.input); }
+        else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent = ev.preview||""; pendingCard=null; } }
+        else if(ev.type==="error"){ msgEl.className="msg err"; bubble.style.display="block"; bubble.textContent = ev.error; }
+        else if(ev.type==="done"){ /* ev.model, ev.note */ }
       }
     }
     if(acc) state.messages.push({role:"assistant", text:acc});
