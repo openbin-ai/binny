@@ -109,24 +109,42 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
 
 ## 6. Build phases
 
-1. **Vertical slice (prove the spine):** `binny --serve` with `/files` + `/file`
-   from the local cache; run the stripped frontend against localhost, auth
-   stubbed; confirm tree loads + click-to-view code. No chat yet.
-2. **Local-model detection:** `/local-models` probe + picker wiring. *(Self-
-   contained; good standalone first win — shipped alongside phase 1.)*
-3. **Agent stream:** `/binny/stream` SSE + a typed event DTO layer mapping the
-   engine's `StepResult`/stream-sink to the `tool_call`/`tool_result` shape the
-   frontend already renders. The session-manager goroutine driver (port the loop
-   from `internal/tui/agent.go`).
-4. **Answer/checkpoint protocol over WS** (`ask_user`, checkpoints, cap
+1. ✅ **Vertical slice (prove the spine):** `binny --serve` with `/api/files` +
+   `/api/file` from a decompiled tree on disk (`--serve-dir`); an **embedded**
+   chat-first web UI (`internal/serve/web/`) served at `/`; tree loads +
+   click-to-view code with a line-number gutter + light syntax highlight.
+   Path-traversal guarded. *(DONE)*
+2. ✅ **Local-model detection:** `/api/local-models` probe + picker wiring (and
+   `/api/config` for configured cloud providers). *(DONE)*
+3. ✅ **Chat (MVP):** `POST /api/chat` streams (SSE) a real conversation through
+   the `internal/llm` provider layer — **fully offline against a detected local
+   model**, or a configured cloud provider. Mode (Malware/Vuln) + focus chips
+   shape the system prompt; the open file is sent as context. *(DONE)*
+4. ⏭ **Full staged engine stream:** replace the direct-provider chat with the
+   real engine (triage→…→review, tools, structured findings, CVE reports) over
+   SSE/WS + a typed event DTO mapping `StepResult`/stream-sink to
+   `tool_call`/`tool_result`. Session-manager goroutine driver (port the loop
+   from `internal/tui/agent.go`). The **Investigate** button lights this up.
+5. ⏭ **Answer/checkpoint protocol over WS** (`ask_user`, checkpoints, cap
    extension — engine support exists: `Provide`/`Ask`/`ContinuePastCap`/`Stop`).
-5. **Decompile from the GUI:** drag-drop APK/binary → worker → progress → tree.
-6. **Findings + report drawers**, mode/focus toolbar, inline code cards.
-7. **Electron packaging** + macOS notarization; `release-desktop.yml`.
+6. ⏭ **Decompile from the GUI:** drag-drop APK/binary → worker → progress → tree
+   (binny already runs the JADX/Ghidra Docker workers).
+7. ⏭ **Findings + report drawers**, inline code cards.
+8. ⏭ **Electron packaging** + macOS notarization; `release-desktop.yml`. (Today
+   the UI runs in a browser at the `--serve` address; Electron is the shell.)
 
-Honest cost: the engine needs ~no changes; the work is the serve adapter + the
-typed event layer + the frontend decoupling from OIDC. ~1–2 weeks to a working
-agent-in-a-window, more for polish/packaging.
+Try the MVP:
+
+```
+binny --serve --serve-dir <a decompiled tree>
+# open the printed http://127.0.0.1:8899 in a browser
+# (run Ollama/LM Studio for a zero-config local model)
+```
+
+Honest cost of what's left: the engine needs ~no changes; phase 4 (the typed
+event layer + session-manager driver) is the real ~1–2 week piece. The current
+chat is a direct provider call, not the staged engine — deliberately, so the
+offline loop works today.
 
 ## 7. Dynamic analysis — DRAFT pipeline (future)
 

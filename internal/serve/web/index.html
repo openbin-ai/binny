@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BINNY Desktop</title>
+<style>
+  :root{
+    --bg:#0d0f14; --panel:#141821; --panel2:#1b212d; --border:#262d3a;
+    --fg:#e6e9ef; --muted:#8b94a7; --accent:#5b8cff; --accent2:#3fd79a;
+    --user:#223052; --err:#ff6b6b; --warn:#ffcc66; --radius:10px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f7f9; --panel:#fff; --panel2:#eef1f5; --border:#d8dee8;
+    --fg:#1b2030; --muted:#5a6578; --user:#dde7ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font-family:var(--sans);display:flex;flex-direction:column;overflow:hidden}
+
+  /* top bar */
+  header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap}
+  .logo{font-weight:700;letter-spacing:.5px}
+  .logo span{color:var(--accent)}
+  .grow{flex:1}
+  select,button,.chip{font-family:var(--sans);font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer}
+  button:hover,.chip:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:var(--panel2)}
+  .seg button.on{background:var(--accent);color:#fff}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip.on{background:var(--accent2);color:#07241a;border-color:var(--accent2)}
+  .status{font-size:12px;color:var(--muted)}
+
+  /* layout */
+  main{flex:1;display:flex;min-height:0}
+  .drawer{width:300px;border-right:1px solid var(--border);background:var(--panel);display:none;flex-direction:column;min-height:0}
+  .drawer.open{display:flex}
+  #codeDrawer{width:46%;border-right:0;border-left:1px solid var(--border)}
+  .drawer h3{margin:0;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border)}
+  .tree{overflow:auto;padding:6px 4px;font-family:var(--mono);font-size:12.5px}
+  .node{padding:2px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
+  .node:hover{background:var(--panel2)}
+  .node.file{color:var(--fg)}
+  .node.dir{color:var(--muted)}
+  .node.sel{background:var(--accent);color:#fff}
+  .kids{margin-left:12px}
+
+  .codewrap{overflow:auto;flex:1;min-height:0}
+  pre.code{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.5}
+  pre.code .ln{display:inline-block;width:46px;text-align:right;padding-right:12px;margin-right:12px;color:var(--muted);border-right:1px solid var(--border);user-select:none}
+  pre.code .tok-c{color:#6b7a8d}      /* comment */
+  pre.code .tok-s{color:var(--accent2)}/* string */
+  pre.code .tok-k{color:var(--accent)} /* keyword */
+
+  /* conversation */
+  #chat{flex:1;display:flex;flex-direction:column;min-width:0}
+  .convo{flex:1;overflow:auto;padding:24px 0}
+  .inner{max-width:760px;margin:0 auto;padding:0 20px}
+  .msg{margin:0 0 18px}
+  .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+  .bubble{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;white-space:pre-wrap;word-wrap:break-word;line-height:1.55}
+  .msg.user .bubble{background:var(--user)}
+  .msg.err .bubble{border-color:var(--err);color:var(--err)}
+  .empty{color:var(--muted);text-align:center;margin-top:12vh}
+  .empty h1{font-weight:700;font-size:26px;margin:.2em 0}
+  .empty .pitch{font-size:13px;max-width:420px;margin:10px auto}
+
+  .composer{border-top:1px solid var(--border);background:var(--panel);padding:12px}
+  .composer .inner{display:flex;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;min-height:44px;max-height:180px;background:var(--panel2);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-family:var(--sans);font-size:14px}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  .send{background:var(--accent);color:#fff;border-color:var(--accent);padding:11px 16px}
+  .ctxbar{max-width:760px;margin:0 auto 8px;padding:0 20px;font-size:12px;color:var(--muted)}
+  .ctxbar b{color:var(--accent2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">BINNY<span>·</span>Desktop</div>
+  <div class="seg" id="modeSeg">
+    <button data-mode="MALWARE" class="on">Malware</button>
+    <button data-mode="VULN_RESEARCH">Vuln</button>
+  </div>
+  <div class="chips" id="focusChips" style="display:none"></div>
+  <div class="grow"></div>
+  <select id="modelPick" title="model"></select>
+  <button id="tExplorer">Explorer</button>
+  <button id="tCode">Code</button>
+  <button id="tTheme" title="theme">◐</button>
+</header>
+
+<main>
+  <aside class="drawer" id="explorerDrawer">
+    <h3>Explorer</h3>
+    <div class="tree" id="tree"><div class="status" style="padding:10px">no tree — start binny --serve --serve-dir &lt;decompiled folder&gt;</div></div>
+  </aside>
+
+  <section id="chat">
+    <div class="convo" id="convo">
+      <div class="empty" id="empty">
+        <h1>Point BINNY at the target.</h1>
+        <div class="pitch">A local-first reverse-engineering agent. Pick a model (local models are auto-detected), open a file, and ask — or hit <b>Investigate</b>.</div>
+        <div class="pitch" style="color:var(--accent2)">Your malware never leaves your machine.</div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="ctxbar" id="ctxbar" style="display:none"></div>
+      <div class="inner">
+        <textarea id="input" placeholder="Ask BINNY about this target…  (Enter to send, Shift+Enter for newline)"></textarea>
+        <button class="send" id="investigate" title="Turn the agent loose (staged engine — next phase)">Investigate</button>
+        <button class="send" id="send">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="drawer" id="codeDrawer">
+    <h3 id="codeTitle">Code</h3>
+    <div class="codewrap"><pre class="code" id="code"></pre></div>
+  </aside>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = p => fetch(p).then(r => r.json());
+
+const state = {
+  mode: "MALWARE",
+  focus: new Set(),
+  model: null,        // {label, baseURL?, providerId?, model}
+  openFile: null,     // {path, content}
+  messages: [],       // {role, text}
+  streaming: false,
+};
+
+const VULN_CLASSES = ["memory","auth","crypto","injection","path-traversal","deserialization","ssrf","race","secrets"];
+
+/* ---- model picker ---- */
+async function loadModels(){
+  const pick = $("#modelPick");
+  pick.innerHTML = "";
+  const opts = [];
+  try {
+    const {runtimes} = await api("/api/local-models");
+    for(const rt of (runtimes||[])) for(const m of rt.models)
+      opts.push({label:`🖥 ${rt.name}: ${m}`, baseURL:rt.baseURL, model:m});
+  } catch {}
+  try {
+    const {providers} = await api("/api/config");
+    for(const p of (providers||[])) if(p.ready) for(const m of (p.models||[]))
+      opts.push({label:`☁ ${p.id}: ${m}`, providerId:p.id, model:m});
+  } catch {}
+  if(!opts.length){
+    const o = document.createElement("option");
+    o.textContent = "no models — run Ollama/LM Studio or configure a key"; o.disabled = true;
+    pick.appendChild(o); state.model = null; return;
+  }
+  opts.forEach((o,i)=>{
+    const el = document.createElement("option"); el.value = i; el.textContent = o.label; pick.appendChild(el);
+  });
+  pick._opts = opts; state.model = opts[0];
+  pick.onchange = () => state.model = pick._opts[pick.value|0];
+}
+
+/* ---- mode + focus ---- */
+$("#modeSeg").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  state.mode = b.dataset.mode;
+  [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x===b));
+  $("#focusChips").style.display = state.mode==="VULN_RESEARCH" ? "flex":"none";
+});
+(function buildChips(){
+  const c = $("#focusChips");
+  VULN_CLASSES.forEach(k=>{
+    const b = document.createElement("div"); b.className="chip"; b.textContent=k;
+    b.onclick=()=>{ b.classList.toggle("on"); b.classList.contains("on")?state.focus.add(k):state.focus.delete(k); };
+    c.appendChild(b);
+  });
+})();
+
+/* ---- drawers ---- */
+$("#tExplorer").onclick = ()=>toggle("#explorerDrawer","#tExplorer");
+$("#tCode").onclick     = ()=>toggle("#codeDrawer","#tCode");
+function toggle(drawer, btn){ $(drawer).classList.toggle("open"); $(btn).classList.toggle("on", $(drawer).classList.contains("open")); }
+$("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
+
+/* ---- file tree ---- */
+async function loadTree(){
+  const {root} = await api("/api/files");
+  const host = $("#tree");
+  if(!root){ return; }
+  host.innerHTML = "";
+  host.appendChild(renderNode(root, true));
+}
+function renderNode(node, open){
+  const wrap = document.createElement("div");
+  const row = document.createElement("div");
+  row.className = "node " + node.type;
+  row.textContent = (node.type==="dir" ? (open?"▾ ":"▸ ") : "") + node.name;
+  wrap.appendChild(row);
+  if(node.type==="dir"){
+    const kids = document.createElement("div"); kids.className="kids"; kids.style.display = open?"block":"none";
+    (node.children||[]).forEach(c=>kids.appendChild(renderNode(c,false)));
+    wrap.appendChild(kids);
+    row.onclick = ()=>{ const vis = kids.style.display==="block"; kids.style.display = vis?"none":"block"; row.textContent=(vis?"▸ ":"▾ ")+node.name; };
+  } else {
+    row.onclick = ()=>openFile(node.path, row);
+  }
+  return wrap;
+}
+async function openFile(path, row){
+  document.querySelectorAll(".node.sel").forEach(n=>n.classList.remove("sel"));
+  if(row) row.classList.add("sel");
+  const data = await api("/api/file?path="+encodeURIComponent(path));
+  if(data.error){ return; }
+  state.openFile = {path, content:data.content};
+  $("#codeTitle").textContent = path + (data.truncated?"  (truncated)":"");
+  $("#code").innerHTML = renderCode(data.content);
+  if(!$("#codeDrawer").classList.contains("open")) toggle("#codeDrawer","#tCode");
+  updateCtx();
+}
+function updateCtx(){
+  const bar = $("#ctxbar");
+  if(state.openFile){ bar.style.display="block"; bar.innerHTML = "context: <b>"+esc(state.openFile.path)+"</b> &nbsp;·&nbsp; <a href='#' id='clearCtx' style='color:var(--muted)'>clear</a>";
+    $("#clearCtx").onclick = e=>{e.preventDefault(); state.openFile=null; bar.style.display="none";};
+  } else bar.style.display="none";
+}
+
+/* ---- minimal syntax highlight (offline, regex-based) ---- */
+const KW = /\b(abstract|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|function|if|implements|import|instanceof|int|interface|let|long|native|new|null|package|private|protected|public|return|short|static|super|switch|synchronized|this|throw|throws|try|var|void|while)\b/g;
+function renderCode(src){
+  const lines = src.split("\n");
+  return lines.map((ln,i)=>{
+    let h = esc(ln)
+      .replace(/(\/\/.*$)/g, '<span class="tok-c">$1</span>')
+      .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;)/g, '<span class="tok-s">$1</span>')
+      .replace(KW, '<span class="tok-k">$&</span>');
+    return `<span class="ln">${i+1}</span>${h}`;
+  }).join("\n");
+}
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+/* ---- chat ---- */
+function systemPrompt(){
+  const lens = state.mode==="VULN_RESEARCH"
+    ? "You are BINNY in VULNERABILITY RESEARCH mode. Hunt for exploitable bugs; for each, give CWE, severity, source→sink reachability, and remediation. Be rigorous; do not invent findings."
+    : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior. Be precise and evidence-based.";
+  let s = lens + " You are a local, offline reverse-engineering assistant.";
+  if(state.mode==="VULN_RESEARCH" && state.focus.size) s += " Scope strictly to these vulnerability classes: "+[...state.focus].join(", ")+".";
+  if(state.openFile) s += "\n\nThe analyst is looking at `"+state.openFile.path+"`:\n```\n"+state.openFile.content.slice(0,24000)+"\n```";
+  return s;
+}
+function addMsg(role, text){
+  $("#empty")?.remove();
+  const m = document.createElement("div"); m.className="msg "+role;
+  m.innerHTML = `<div class="who">${role==="user"?"you":role==="err"?"error":"binny"}</div><div class="bubble"></div>`;
+  m.querySelector(".bubble").textContent = text;
+  $("#convo").appendChild(m); scroll();
+  return m.querySelector(".bubble");
+}
+function scroll(){ const c=$("#convo"); c.scrollTop=c.scrollHeight; }
+
+async function send(prefix){
+  if(state.streaming) return;
+  const ta = $("#input");
+  let text = (prefix||"") + ta.value.trim();
+  if(!text.trim()) return;
+  if(!state.model){ addMsg("err","Pick a model first (top-right). Run Ollama/LM Studio for a local one, or configure an API key."); return; }
+  ta.value=""; autoSize();
+  addMsg("user", text);
+  state.messages.push({role:"user", text});
+  const bubble = addMsg("assistant", "");
+  state.streaming = true; $("#send").disabled = $("#investigate").disabled = true;
+
+  const body = {
+    baseURL: state.model.baseURL || "",
+    providerId: state.model.providerId || "",
+    model: state.model.model,
+    system: systemPrompt(),
+    messages: state.messages,
+  };
+  let acc = "";
+  try{
+    const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
+    for(;;){
+      const {value,done} = await reader.read(); if(done) break;
+      buf += dec.decode(value,{stream:true});
+      let idx;
+      while((idx = buf.indexOf("\n\n")) >= 0){
+        const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
+        if(!line.startsWith("data:")) continue;
+        const ev = JSON.parse(line.slice(5).trim());
+        if(ev.type==="chunk"){ acc += ev.text; bubble.textContent = acc; scroll(); }
+        else if(ev.type==="error"){ bubble.parentElement.className="msg err"; bubble.textContent = ev.error; }
+        else if(ev.type==="done"){ /* usage available in ev.usage */ }
+      }
+    }
+    if(acc) state.messages.push({role:"assistant", text:acc});
+  }catch(e){ bubble.parentElement.className="msg err"; bubble.textContent = String(e); }
+  state.streaming=false; $("#send").disabled=$("#investigate").disabled=false;
+}
+
+$("#send").onclick = ()=>send();
+$("#investigate").onclick = ()=>send(
+  state.openFile
+    ? "Investigate this file end to end: walk the entry points, trace untrusted input to any dangerous sink, and report what you find with evidence. "
+    : "Investigate this target. Ask me to open the files you need. "
+);
+const inputEl = $("#input");
+inputEl.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); send(); } });
+inputEl.addEventListener("input", autoSize);
+function autoSize(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,180)+"px"; }
+
+/* ---- boot ---- */
+loadModels(); loadTree();
+</script>
+</body>
+</html>

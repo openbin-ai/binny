@@ -45,6 +45,7 @@ func run() error {
 	showVersion := flag.Bool("version", false, "print the binny version and exit")
 	serveMode := flag.Bool("serve", false, "run as the local HTTP backend for BINNY Desktop instead of the terminal UI")
 	serveAddr := flag.String("serve-addr", "127.0.0.1:8899", "address for --serve to listen on (loopback only)")
+	serveDir := flag.String("serve-dir", "", "a decompiled tree to serve in BINNY Desktop's Explorer/Code panes")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("binny " + version)
@@ -54,9 +55,18 @@ func run() error {
 	// --serve: the engine behind BINNY Desktop. A new mode of this same binary;
 	// the TUI below stays the default. See docs/DESKTOP.md.
 	if *serveMode {
+		cfg, _, err := config.Load()
+		if err != nil {
+			return err
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return serve.Run(ctx, serve.Options{Addr: *serveAddr, Version: version})
+		return serve.Run(ctx, serve.Options{
+			Addr:      *serveAddr,
+			Version:   version,
+			Dir:       *serveDir,
+			Providers: cfg.Providers,
+		})
 	}
 
 	ep := config.LoadEndpoints()
