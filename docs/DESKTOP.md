@@ -134,8 +134,11 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    (port the loop from `internal/tui/agent.go`).
 5. ⏭ **Answer/checkpoint protocol over WS** (`ask_user`, checkpoints, cap
    extension — engine support exists: `Provide`/`Ask`/`ContinuePastCap`/`Stop`).
-6. ⏭ **Decompile from the GUI:** drag-drop APK/binary → worker → progress → tree
-   (binny already runs the JADX/Ghidra Docker workers).
+6. 🟡 **Decompile from the GUI:** ✅ for APK — drop an `.apk` on the window (or
+   ＋ APK) → `POST /api/decompile` runs the local JADX worker, streams progress
+   (SSE), swaps the served tree to the result and opens Explorer. Cached by
+   sha256 in the local store, so re-dropping is instant; the served dir is now
+   runtime-swappable (`internal/serve/decompile.go`). ⏭ binary/Ghidra path.
 7. 🟡 **Findings + report drawers**, inline code cards. Findings: ✅ — a
    `record_finding` tool pins structured findings (title/severity/CWE/file:line/
    reachability/note) that stream as `finding` SSE events into a severity-sorted

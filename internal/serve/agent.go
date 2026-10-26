@@ -62,7 +62,7 @@ func (s *server) agentTools() []llm.Tool {
 			"note":         str,
 		}, "title", "severity", "note"),
 	}}
-	if s.opts.Dir == "" {
+	if s.dir() == "" {
 		return tools
 	}
 	return append(tools,
@@ -118,9 +118,9 @@ func (s *server) runTool(name string, input json.RawMessage) (string, bool) {
 
 func (s *server) scopeDir(dir string) (string, bool) {
 	if dir == "" {
-		return s.opts.Dir, true
+		return s.dir(), true
 	}
-	return safeJoin(s.opts.Dir, dir)
+	return safeJoin(s.dir(), dir)
 }
 
 func (s *server) toolListFiles(dir, filter string) (string, bool) {
@@ -133,7 +133,7 @@ func (s *server) toolListFiles(dir, filter string) (string, bool) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		rel, _ := filepath.Rel(s.opts.Dir, p)
+		rel, _ := filepath.Rel(s.dir(), p)
 		rel = filepath.ToSlash(rel)
 		if filter == "" || strings.Contains(rel, filter) {
 			files = append(files, rel)
@@ -161,7 +161,7 @@ func filterNote(f string) string {
 }
 
 func (s *server) toolReadFile(path string, start, max int) (string, bool) {
-	abs, ok := safeJoin(s.opts.Dir, path)
+	abs, ok := safeJoin(s.dir(), path)
 	if !ok {
 		return "invalid path", true
 	}
@@ -216,7 +216,7 @@ func (s *server) toolSearch(pattern, dir string) (string, bool) {
 		if e != nil {
 			return nil
 		}
-		rel, _ := filepath.Rel(s.opts.Dir, p)
+		rel, _ := filepath.Rel(s.dir(), p)
 		rel = filepath.ToSlash(rel)
 		for i, ln := range strings.Split(string(data), "\n") {
 			if re.MatchString(ln) {

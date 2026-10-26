@@ -106,6 +106,8 @@
   </div>
   <div class="chips" id="focusChips" style="display:none"></div>
   <div class="grow"></div>
+  <button id="openApk" title="Decompile an APK locally">＋ APK</button>
+  <input type="file" id="apkInput" accept=".apk,.xapk,.apks" style="display:none">
   <select id="modelPick" title="model"></select>
   <button id="tExplorer">Explorer</button>
   <button id="tCode">Code</button>
@@ -281,6 +283,41 @@ function renderCode(src){
   }).join("\n");
 }
 function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+/* ---- decompile an APK locally ---- */
+$("#openApk").onclick = ()=>$("#apkInput").click();
+$("#apkInput").onchange = e=>{ if(e.target.files[0]) decompile(e.target.files[0]); e.target.value=""; };
+["dragover","drop"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); }));
+document.addEventListener("drop", e=>{ const f=e.dataTransfer?.files?.[0]; if(f && /\.(apk|xapk|apks)$/i.test(f.name)) decompile(f); });
+
+async function decompile(file){
+  if(state.streaming) return;
+  state.streaming = true;
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble"); bubble.style.display="block";
+  bubble.textContent = "Uploading "+file.name+"…";
+  const fd = new FormData(); fd.append("apk", file);
+  try{
+    const res = await fetch("/api/decompile",{method:"POST",body:fd});
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
+    for(;;){
+      const {value,done} = await reader.read(); if(done) break;
+      buf += dec.decode(value,{stream:true}); let idx;
+      while((idx=buf.indexOf("\n\n"))>=0){
+        const line = buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
+        if(!line.startsWith("data:")) continue;
+        const ev = JSON.parse(line.slice(5).trim());
+        if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
+        else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
+        else if(ev.type==="ready"){
+          bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
+          await loadTree();
+          if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
+        }
+      }
+    }
+  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  state.streaming = false;
+}
 
 /* ---- findings ---- */
 let findCount = 0;

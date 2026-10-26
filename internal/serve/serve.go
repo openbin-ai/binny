@@ -34,6 +34,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"openbin.ai/binny/internal/config"
@@ -65,7 +66,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Dir = abs
 	}
 
-	s := &server{opts: opts}
+	s := &server{opts: opts, curDir: opts.Dir}
 	srv := &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),
@@ -102,6 +103,27 @@ func Run(ctx context.Context, opts Options) error {
 
 type server struct {
 	opts Options
+
+	mu     sync.RWMutex
+	curDir string // the tree currently served; swappable via /api/decompile
+}
+
+// dir returns the tree currently being served (initially --serve-dir, later
+// whatever a GUI decompile produced).
+func (s *server) dir() string {
+	s.mu.RLock()
+	d := s.curDir
+	s.mu.RUnlock()
+	if d == "" {
+		return s.opts.Dir // not yet swapped: the configured --serve-dir
+	}
+	return d
+}
+
+func (s *server) setDir(d string) {
+	s.mu.Lock()
+	s.curDir = d
+	s.mu.Unlock()
 }
 
 func (s *server) routes() http.Handler {
@@ -117,12 +139,13 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/local-models", s.handleLocalModels)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
+	mux.HandleFunc("/api/decompile", s.handleDecompile)
 	mux.HandleFunc("/api/chat", s.handleChat)
 	return withLocalCORS(mux)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.opts.Dir != ""})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != ""})
 }
 
 func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -163,11 +186,12 @@ type fileNode struct {
 const maxTreeFiles = 40000
 
 func (s *server) handleFiles(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Dir == "" {
+	dir := s.dir()
+	if dir == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"root": nil})
 		return
 	}
-	root, err := buildTree(s.opts.Dir)
+	root, err := buildTree(dir)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -238,12 +262,13 @@ func buildTree(rootDir string) (*fileNode, error) {
 const maxFileBytes = 4 << 20
 
 func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Dir == "" {
+	dir := s.dir()
+	if dir == "" {
 		writeErr(w, http.StatusNotFound, "no tree is being served")
 		return
 	}
 	rel := r.URL.Query().Get("path")
-	abs, ok := safeJoin(s.opts.Dir, rel)
+	abs, ok := safeJoin(dir, rel)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 		return
