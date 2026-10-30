@@ -24,7 +24,7 @@ func TestHandleAnalyzeEntersBinaryMode(t *testing.T) {
 	blob := []byte(`{"metadata":{"language":"x86:LE:32","executable_format":"ELF","function_count":3,"string_count":10,"import_count":2}}`)
 
 	orig := analyzeBinary
-	analyzeBinary = func(_ context.Context, _, name string, _ int64, logf worker.Logf) (store.Meta, error) {
+	analyzeBinary = func(_ context.Context, _, name, _ string, _ int64, logf worker.Logf) (store.Meta, error) {
 		logf("faking Ghidra on %s…", name)
 		meta := store.Meta{Sha256: sha, Name: name, Format: "ELF", Language: "x86:LE:32"}
 		if err := store.Save(meta, blob); err != nil { // the real pipeline caches here too

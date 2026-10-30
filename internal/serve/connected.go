@@ -195,7 +195,7 @@ func (s *server) handleOpenProject(w http.ResponseWriter, r *http.Request) {
 			send(map[string]any{"type": "error", "error": meta})
 			return
 		}
-		s.setBinaryProject(id, reg)
+		s.setBinaryProject(id, reg, tb)
 		send(map[string]any{"type": "ready", "kind": "BIN", "name": p.Name, "projectId": id, "summary": meta})
 
 	default:

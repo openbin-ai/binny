@@ -111,6 +111,7 @@ type server struct {
 	curDir string          // the tree currently served; swappable via /api/decompile
 	curPID string          // backend project id backing curDir, if any ("" = local)
 	curReg *tools.Registry // binary-analysis tools when a BIN project is open (no tree)
+	curTB  *tools.Toolbox  // same BIN project's toolbox, for the read-only binary panel
 }
 
 // dir returns the tree currently being served (initially --serve-dir, later
@@ -129,7 +130,7 @@ func (s *server) setDir(d string) {
 	s.mu.Lock()
 	s.curDir = d
 	s.curPID = "" // a local tree (dropped APK / --serve-dir), not a cloud project
-	s.curReg = nil
+	s.curReg, s.curTB = nil, nil
 	s.mu.Unlock()
 }
 
@@ -139,17 +140,19 @@ func (s *server) setDirProject(d, projectID string) {
 	s.mu.Lock()
 	s.curDir = d
 	s.curPID = projectID
-	s.curReg = nil
+	s.curReg, s.curTB = nil, nil
 	s.mu.Unlock()
 }
 
 // setBinaryProject enters binary mode: no file tree (binaries have none), just
-// the Ghidra-backed analysis tools the chat agent uses to answer about it.
-func (s *server) setBinaryProject(projectID string, reg *tools.Registry) {
+// the Ghidra-backed analysis — the chat agent's tools (reg) and the read-only
+// binary panel (tb) both read the same cached analysis blob.
+func (s *server) setBinaryProject(projectID string, reg *tools.Registry, tb *tools.Toolbox) {
 	s.mu.Lock()
 	s.curDir = ""
 	s.curPID = projectID
 	s.curReg = reg
+	s.curTB = tb
 	s.mu.Unlock()
 }
 
@@ -165,6 +168,13 @@ func (s *server) reg() *tools.Registry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.curReg
+}
+
+// binTB returns the binary project's toolbox (for the read-only binary panel).
+func (s *server) binTB() *tools.Toolbox {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.curTB
 }
 
 func (s *server) routes() http.Handler {
@@ -190,6 +200,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("/api/projects", s.handleProjects)
 	mux.HandleFunc("/api/project/open", s.handleOpenProject)
+	mux.HandleFunc("/api/bin/analysis", s.handleBinAnalysis)
+	mux.HandleFunc("/api/bin/function", s.handleBinFunction)
 	return withLocalCORS(mux)
 }
 

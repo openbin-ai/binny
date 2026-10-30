@@ -9,6 +9,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,20 +24,25 @@ import (
 	"openbin.ai/binny/internal/worker"
 )
 
+// errNeedProcessor signals a raw/headerless image whose architecture couldn't be
+// auto-detected: the GUI must ask the user to pick a processor and resubmit.
+var errNeedProcessor = errors.New("need processor")
+
 // analyzeBinary is the real local pipeline, swappable in tests (which can't run
-// Docker) — mirrors decompileAPK.
+// Docker) — mirrors decompileAPK. processor is "" for auto-detect, or a forced
+// Ghidra language id (raw/firmware images).
 var analyzeBinary = realAnalyzeBinary
 
-func realAnalyzeBinary(ctx context.Context, binPath, name string, size int64, logf worker.Logf) (store.Meta, error) {
+func realAnalyzeBinary(ctx context.Context, binPath, name, processor string, size int64, logf worker.Logf) (store.Meta, error) {
 	var zero store.Meta
 	sha, err := fileSHA(binPath)
 	if err != nil {
 		return zero, err
 	}
-	// Reuse a cached analysis for this exact binary (GUI never forces a processor,
-	// so a store hit with the default processor is a free re-attach).
+	// Reuse a cached analysis for this exact binary + processor choice (a store
+	// hit with the same processor is a free re-attach, no Ghidra run).
 	if store.Has(sha) {
-		if meta, err := store.Load(sha); err == nil && meta.Processor == "" {
+		if meta, err := store.Load(sha); err == nil && meta.Processor == processor {
 			logf("Already analyzed — using the cached analysis (%s).", store.LocalID(sha))
 			meta.SamplePath = binPath
 			return *meta, nil
@@ -45,14 +51,30 @@ func realAnalyzeBinary(ctx context.Context, binPath, name string, size int64, lo
 
 	guess := archdetect.Detect(binPath)
 	logf("Format: %s", guess.Detail)
+	loader := ""
 	if guess.Format == "raw" {
-		// A raw image needs a forced processor id, which the GUI can't prompt for
-		// yet. Point the user at the CLI for firmware (matches the TUI behavior).
-		return zero, fmt.Errorf("couldn't identify the architecture — this looks like a raw image (firmware). Analyze it from the CLI with a processor id: binny then /decompile %s <processor>", name)
+		loader = "binary"
+		if processor == "" {
+			// Try to identify firmware automatically (uImage/embedded ELF/opcodes)
+			// before asking the analyst to pick — same ladder the TUI uses.
+			logf("Raw image — scanning for architecture evidence…")
+			firm := archdetect.DetectFirmware(binPath)
+			if firm.Processor == "" {
+				return zero, errNeedProcessor // GUI will prompt for a processor
+			}
+			processor = firm.Processor
+			logf("Detected %s (%s confidence):", firm.Processor, firm.Confidence)
+			for _, ev := range firm.Evidence {
+				logf("  · %s", ev)
+			}
+		}
+	}
+	if processor != "" {
+		logf("Using processor %s.", processor)
 	}
 
 	logf("Running Ghidra on %s…", name)
-	blob, err := ghidra.Analyze(ctx, ghidra.Request{BinaryPath: binPath, Arch: guess.Detail}, logf)
+	blob, err := ghidra.Analyze(ctx, ghidra.Request{BinaryPath: binPath, Arch: guess.Detail, Processor: processor, Loader: loader}, logf)
 	if err != nil {
 		return zero, err
 	}
@@ -67,6 +89,7 @@ func realAnalyzeBinary(ctx context.Context, binPath, name string, size int64, lo
 		SizeBytes:  size,
 		Language:   a.Metadata.Language,
 		Format:     a.Metadata.ExecutableFormat,
+		Processor:  processor,
 	}
 	if err := store.Save(meta, blob); err != nil {
 		return zero, fmt.Errorf("analysis succeeded but saving locally failed: %w", err)
@@ -145,8 +168,19 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"type": "progress", "text": fmt.Sprintf(format, args...)})
 	}
 
+	processor := r.FormValue("processor") // "" = auto-detect; set for raw/firmware
+
 	send(map[string]any{"type": "progress", "text": fmt.Sprintf("Analyzing %s (%d bytes) with Ghidra…", hdr.Filename, size)})
-	meta, err := analyzeBinary(r.Context(), tmpPath, hdr.Filename, size, logf)
+	meta, err := analyzeBinary(r.Context(), tmpPath, hdr.Filename, processor, size, logf)
+	if errors.Is(err, errNeedProcessor) {
+		send(map[string]any{
+			"type":       "need_processor",
+			"name":       hdr.Filename,
+			"candidates": archdetect.RawCandidates,
+			"note":       "This looks like a raw/headerless image (firmware). Pick the CPU architecture to analyze it as.",
+		})
+		return
+	}
 	if err != nil {
 		send(map[string]any{"type": "error", "error": err.Error()})
 		return
@@ -161,6 +195,6 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"type": "error", "error": summary})
 		return
 	}
-	s.setBinaryProject(project.ID, reg)
+	s.setBinaryProject(project.ID, reg, tb)
 	send(map[string]any{"type": "ready", "kind": "BIN", "name": meta.Name, "projectId": project.ID, "summary": summary})
 }

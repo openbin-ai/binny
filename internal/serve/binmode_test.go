@@ -20,7 +20,7 @@ func TestBinaryModeToolsAndDispatch(t *testing.T) {
 	})
 
 	s := &server{opts: Options{}}
-	s.setBinaryProject("proj-1", reg)
+	s.setBinaryProject("proj-1", reg, nil)
 
 	// Tool defs: record_finding + the registry's tools, and NONE of the tree tools.
 	names := map[string]bool{}
