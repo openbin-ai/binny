@@ -7,7 +7,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "build:sidecar": "node build-sidecar.js",
+    "pack": "npm run build:sidecar && electron-builder --dir --publish never",
+    "dist": "npm run build:sidecar && electron-builder --publish never"
   },
   "devDependencies": {
     "electron": "33.2.1",
@@ -16,11 +18,16 @@
   "build": {
     "appId": "ai.openbin.binny.desktop",
     "productName": "BINNY Desktop",
+    "artifactName": "BINNY-Desktop-${version}-${os}-${arch}.${ext}",
     "files": ["main.js", "preload.js"],
     "extraResources": [
       { "from": "bin", "to": "bin" }
     ],
-    "mac": { "category": "public.app-category.developer-tools", "target": ["dmg", "zip"] },
+    "directories": { "output": "dist" },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg", "zip"]
+    },
     "win": { "target": ["nsis", "zip"] },
     "linux": { "target": ["AppImage", "tar.gz"], "category": "Development" }
   }

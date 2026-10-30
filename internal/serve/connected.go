@@ -199,7 +199,10 @@ func (s *server) handleOpenProject(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"type": "ready", "kind": "BIN", "name": p.Name, "projectId": id, "summary": meta})
 
 	default:
-		send(map[string]any{"type": "error", "error": fmt.Sprintf("%s projects can't be opened in the desktop yet — only APK and binary projects", p.Kind)})
+		// SCRIPT/zip projects have no browsable source via the client API (the
+		// backend doesn't extract them into srcDir and source-bundle is APK-only),
+		// so they can't be opened in the desktop yet.
+		send(map[string]any{"type": "error", "error": fmt.Sprintf("%s projects can't be opened in the desktop yet", p.Kind)})
 	}
 }
 

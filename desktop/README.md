@@ -32,13 +32,24 @@ architecture.
 `electron-builder` bundles the binary from `desktop/bin/` as an app resource:
 
 ```sh
-go build -o desktop/bin/binny .     # the right GOOS/GOARCH for the target
-cd desktop && npm run dist
+cd desktop
+npm install
+npm run dist        # builds the Go sidecar into bin/ (build-sidecar.js), then electron-builder
 ```
 
-macOS builds need notarization for distribution (not configured here yet — phase
-8 in the design doc). The CI mirror pattern used for the CLI release
-(`.github/workflows/release.yml`) is the template for a `release-desktop.yml`.
+`npm run dist` runs `build-sidecar.js` first (native `go build` for the host, with
+the version baked in from `BINNY_VERSION`), so you don't build the binary by hand.
+Use `npm run pack` for an unpacked dir (faster, no installer). Output lands in
+`desktop/dist/`. Targets: dmg/zip (macOS), nsis/zip (Windows), AppImage/tar.gz
+(Linux).
+
+Release: push a `desktop-v*` tag and `.github/workflows/release-desktop.yml`
+packages on a per-OS runner matrix and attaches the installers to the release.
+
+Builds are **unsigned** for now: macOS users right-click → Open the first time;
+Windows shows a SmartScreen prompt. Code-signing + notarization just need certs —
+electron-builder reads `CSC_LINK`/`CSC_KEY_PASSWORD` (macOS) and the Windows
+signing secrets from the environment.
 
 ## What runs where
 

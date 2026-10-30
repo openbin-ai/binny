@@ -159,8 +159,12 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    and has a File → Open Decompiled Folder menu that restarts the sidecar on the
    chosen tree. `preload.js` (contextIsolation) is the seam for native bridges.
    Run: `go build -o desktop/bin/binny . && cd desktop && npm i && BINNY_BIN=./bin/binny npm start`.
-   ⏭ remaining: `electron-builder` installers, macOS notarization,
-   `release-desktop.yml`.
+   ✅ **Installers** — `npm run dist` builds the Go sidecar into `desktop/bin/`
+   (`build-sidecar.js`) and runs `electron-builder` (dmg/zip · nsis/zip ·
+   AppImage/tar.gz). `.github/workflows/release-desktop.yml` packages on a per-OS
+   runner matrix on a `desktop-v*` tag and attaches the installers to the release.
+   ⏭ remaining: code-signing + macOS notarization (builds are unsigned for now;
+   the env hooks are wired, just needs certs).
 
 Try the MVP:
 
@@ -305,8 +309,15 @@ The serve chat agent (`agent.go`) is now registry-aware: `record_finding` is
 always offered; when `s.reg()` is set it exposes `reg.Defs()` and dispatches
 calls through `reg.Run()`; otherwise it falls back to the read-only tree tools.
 So "open a cloud binary and interrogate it" works today — fully through the
-existing toolbox, no new per-binary UI. The blob is cached (`store.SaveRemote`),
-so re-opens are instant and work offline after the first fetch.
+existing toolbox. The blob is cached (`store.SaveRemote`), so re-opens are
+instant and work offline after the first fetch.
+
+Alongside the chat there's a read-only **Binary panel** (a drawer): a function
+list, strings, and imports (filterable), plus a decompiled-C viewer — click a
+function to see its Ghidra pseudocode + disassembly in the Code drawer. It reads
+the same cached analysis via `/api/bin/analysis` + `/api/bin/function`
+(`binpanel.go`), straight from the stored toolbox (`Toolbox.Analysis()`), with no
+agent loop. It auto-opens on a binary and is restored on reload.
 
 ### 8.5 Local binary import ✅
 
@@ -318,9 +329,14 @@ then builds a local `api.Project` (`local:<sha12>`, kind BIN) and enters the sam
 binary chat mode as a cloud BIN. Cached by sha256, so re-dropping is instant. The
 whole thing is **offline**: a local binary's analysis blob is read straight from
 the store, so the toolbox needs no backend client (`NewToolbox(nil, project)`).
-Raw images (firmware, no ELF/PE/Mach-O header) need a forced processor id the GUI
-can't prompt for yet — those still go to the CLI (`/decompile <file> <proc>`).
+Raw/firmware images (no ELF/PE/Mach-O header) are handled too: the backend first
+tries `archdetect.DetectFirmware` (uImage / embedded ELF / opcode census); only
+if that fails does it emit a `need_processor` event, and the GUI shows a processor
+picker (`archdetect.RawCandidates`) and resubmits with the chosen Ghidra language
+id (recorded in the cache meta, raw-binary loader).
 
-Honest scope: SCRIPT/zip projects still don't open. A richer binary UI (function
-list / decompiled-C viewer pane) beyond chat is future work; the chat tools
-already expose all of it.
+Scope note: **SCRIPT/zip projects don't open in the desktop** — unlike APKs they
+aren't extracted into the backend's `srcDir` and `source-bundle` is APK-only, so
+the client has no browsable tree or bundle to pull. That's a backend limitation,
+not a desktop one; the picker shows them disabled and the open route returns a
+clear "can't be opened yet" message.
