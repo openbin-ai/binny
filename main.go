@@ -66,6 +66,7 @@ func run() error {
 			Version:   version,
 			Dir:       *serveDir,
 			Providers: cfg.Providers,
+			Endpoints: config.LoadEndpoints(),
 		})
 	}
 

@@ -95,6 +95,26 @@
   .send{background:var(--accent);color:#fff;border-color:var(--accent);padding:11px 16px}
   .ctxbar{max-width:760px;margin:0 auto 8px;padding:0 20px;font-size:12px;color:var(--muted)}
   .ctxbar b{color:var(--accent2)}
+
+  /* cloud modal (connected mode) */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;z-index:50}
+  .overlay.open{display:flex}
+  .modal{margin-top:8vh;width:580px;max-width:92vw;max-height:80vh;background:var(--panel);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .modal .mhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .modal .mhead b{font-size:14px}
+  .modal .mbody{padding:14px 16px;overflow:auto}
+  .acct{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .plist{display:flex;flex-direction:column;gap:6px}
+  .prow{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer}
+  .prow:hover{border-color:var(--accent)}
+  .prow.disabled{opacity:.45;cursor:not-allowed}
+  .prow .pn{flex:1;min-width:0}
+  .prow .pn .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prow .pn .s{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--border);color:var(--muted)}
+  .code-box{font-family:var(--mono);font-size:22px;letter-spacing:3px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center;margin:12px 0}
+  .mbtn{background:var(--accent);color:#fff;border-color:var(--accent);padding:10px 16px;margin-top:4px}
+  a.link{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -106,6 +126,7 @@
   </div>
   <div class="chips" id="focusChips" style="display:none"></div>
   <div class="grow"></div>
+  <button id="cloudBtn" title="Sign in and open one of your cloud projects">☁ Cloud</button>
   <button id="openApk" title="Decompile an APK locally">＋ APK</button>
   <input type="file" id="apkInput" accept=".apk,.xapk,.apks" style="display:none">
   <select id="modelPick" title="model"></select>
@@ -160,6 +181,19 @@
     <div class="codewrap"><pre class="code" id="report" style="padding:12px;white-space:pre-wrap"></pre></div>
   </aside>
 </main>
+
+<div class="overlay" id="cloudModal">
+  <div class="modal">
+    <div class="mhead">
+      <b>Cloud projects</b>
+      <span class="acct" id="acctLine"></span>
+      <div class="grow"></div>
+      <button id="signOut" style="display:none">Sign out</button>
+      <button id="cloudClose" title="Close">✕</button>
+    </div>
+    <div class="mbody" id="cloudBody"></div>
+  </div>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -283,6 +317,124 @@ function renderCode(src){
   }).join("\n");
 }
 function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+/* ---- connected mode: login + cloud projects ---- */
+const auth = { account: null };
+
+$("#cloudBtn").onclick   = ()=>{ $("#cloudModal").classList.add("open"); refreshCloud(); };
+$("#cloudClose").onclick = ()=>$("#cloudModal").classList.remove("open");
+$("#cloudModal").addEventListener("click", e=>{ if(e.target.id==="cloudModal") $("#cloudModal").classList.remove("open"); });
+$("#signOut").onclick = async ()=>{ try{ await fetch("/api/auth/logout",{method:"POST"}); }catch{} auth.account=null; updateAcct(); refreshCloud(); };
+
+async function loadAuth(){
+  try{ auth.account = await api("/api/auth/status"); }catch{ auth.account = null; }
+  updateAcct();
+}
+function updateAcct(){
+  const a = auth.account, btn = $("#cloudBtn");
+  if(a && a.loggedIn){ btn.textContent = "☁ "+(a.username||a.email||"Cloud"); btn.classList.add("on"); }
+  else { btn.textContent = "☁ Cloud"; btn.classList.remove("on"); }
+}
+const host = s => s.replace(/^https?:\/\//,"");
+
+async function refreshCloud(){
+  const body = $("#cloudBody"), acctLine = $("#acctLine");
+  await loadAuth();
+  const a = auth.account;
+  if(!a || !a.loggedIn){
+    $("#signOut").style.display = "none";
+    acctLine.textContent = a && a.endpoint ? host(a.endpoint) : "";
+    body.innerHTML = "";
+    const p = document.createElement("div"); p.className="status"; p.style.marginBottom="12px";
+    p.textContent = "Sign in to the openbin backend to browse and open your existing projects. Local analysis (dropping an APK) works without signing in.";
+    const b = document.createElement("button"); b.className="mbtn"; b.textContent="Sign in with your browser"; b.onclick=startLogin;
+    body.appendChild(p); body.appendChild(b);
+    return;
+  }
+  $("#signOut").style.display = "";
+  acctLine.textContent = (a.email||a.username||"") + (a.endpoint ? " · "+host(a.endpoint) : "");
+  body.innerHTML = '<div class="status">Loading your projects…</div>';
+  let data;
+  try{ data = await api("/api/projects"); }
+  catch(e){ body.innerHTML = '<div class="msg err" style="padding:8px">'+esc(String(e))+'</div>'; return; }
+  if(data.error && !data.projects){ body.innerHTML = '<div class="status">'+esc(data.error)+'</div>'; return; }
+  const list = data.projects || [];
+  if(!list.length){ body.innerHTML = '<div class="status">No projects yet. Upload one on the web app, or drop an APK here to analyze locally.</div>'; return; }
+  const plist = document.createElement("div"); plist.className="plist";
+  for(const p of list){
+    const row = document.createElement("div"); row.className = "prow" + (p.openable ? "" : " disabled");
+    const icon = document.createElement("div"); icon.textContent = p.kind==="APK" ? "📱" : (p.kind==="BIN" ? "⚙️" : "📄");
+    const nm = document.createElement("div"); nm.className="pn";
+    const t = document.createElement("div"); t.className="t"; t.textContent = p.name || p.id;
+    const s = document.createElement("div"); s.className="s";
+    s.textContent = [p.kind, p.packageName, p.openable ? "" : (p.kind!=="APK" ? "no source tree" : "not ready")].filter(Boolean).join(" · ");
+    nm.appendChild(t); nm.appendChild(s);
+    const badge = document.createElement("span"); badge.className="badge"; badge.textContent = p.ready ? "ready" : (p.status||"").toLowerCase();
+    row.appendChild(icon); row.appendChild(nm); row.appendChild(badge);
+    if(p.openable) row.onclick = ()=>openProject(p);
+    else row.title = "Only ready APK projects have a browsable source tree";
+    plist.appendChild(row);
+  }
+  body.innerHTML = ""; body.appendChild(plist);
+}
+
+function startLogin(){
+  const body = $("#cloudBody");
+  body.innerHTML = '<div class="status">Starting login…</div>';
+  streamSSE("/api/auth/login", {method:"POST"}, ev=>{
+    if(ev.type==="code"){
+      const url = ev.verification_uri_complete || ev.verification_uri;
+      try{ window.open(url, "_blank", "noopener"); }catch{}
+      body.innerHTML = "";
+      const p = document.createElement("div"); p.className="status";
+      p.innerHTML = 'Opened your browser to confirm. If it didn\'t open, go to <a class="link" target="_blank" rel="noopener" href="'+esc(url)+'">'+esc(ev.verification_uri||url)+'</a> and enter this code:';
+      const box = document.createElement("div"); box.className="code-box"; box.textContent = ev.user_code;
+      const w = document.createElement("div"); w.className="status"; w.textContent = "Waiting for confirmation…";
+      body.appendChild(p); body.appendChild(box); body.appendChild(w);
+    } else if(ev.type==="done"){
+      auth.account = ev.account; updateAcct(); refreshCloud();
+    } else if(ev.type==="error"){
+      body.innerHTML = '<div class="msg err" style="padding:8px">'+esc(ev.error)+'</div>';
+      const b = document.createElement("button"); b.className="mbtn"; b.textContent="Try again"; b.onclick=startLogin;
+      body.appendChild(b);
+    }
+  }).catch(e=>{ body.innerHTML = '<div class="msg err" style="padding:8px">'+esc(String(e))+'</div>'; });
+}
+
+async function openProject(p){
+  $("#cloudModal").classList.remove("open");
+  if(state.streaming) return;
+  state.streaming = true;
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble"); bubble.style.display="block";
+  bubble.textContent = "Opening "+(p.name||p.id)+"…";
+  try{
+    await streamSSE("/api/project/open?id="+encodeURIComponent(p.id), {method:"POST"}, async ev=>{
+      if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
+      else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
+      else if(ev.type==="ready"){
+        bubble.textContent = "Opened "+(ev.package||ev.name||p.name||p.id)+". Browse it in Explorer, or ask BINNY about it.";
+        await loadTree();
+        if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
+      }
+    });
+  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  finally{ state.streaming = false; }
+}
+
+/* shared SSE reader — line-delimited `data: {json}` events */
+async function streamSSE(url, opts, onEvent){
+  const res = await fetch(url, opts);
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+  for(;;){
+    const {value, done} = await reader.read(); if(done) break;
+    buf += dec.decode(value, {stream:true}); let idx;
+    while((idx = buf.indexOf("\n\n")) >= 0){
+      const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
+      if(!line.startsWith("data:")) continue;
+      await onEvent(JSON.parse(line.slice(5).trim()));
+    }
+  }
+}
 
 /* ---- decompile an APK locally ---- */
 $("#openApk").onclick = ()=>$("#apkInput").click();
@@ -468,7 +620,7 @@ inputEl.addEventListener("input", autoSize);
 function autoSize(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,180)+"px"; }
 
 /* ---- boot ---- */
-loadModels(); loadTree();
+loadModels(); loadTree(); loadAuth();
 </script>
 </body>
 </html>

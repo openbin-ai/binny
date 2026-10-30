@@ -23,6 +23,14 @@ The defining property is **fully offline / air-gapped**:
 > researchers often legally/contractually cannot upload samples or decompiled
 > code to a cloud API. A 100%-offline agent is the differentiator.
 
+**Connected mode (opt-in).** Local-first is the default, but the desktop is not
+local-*only*: you can sign in to the openbin backend **from the GUI** (browser
+device flow — no terminal) and open any of your existing cloud projects. BINNY
+downloads that project's decompiled source into the local cache and serves it
+exactly like a dropped APK, so chat/findings/reports all work against it. Login
+shares the openbin CLI's credentials file, so signing in either place satisfies
+both. See §8.
+
 ## 2. Architecture
 
 ```
@@ -226,3 +234,52 @@ user confirms at a **`Checkpoint`** (mechanism already in the engine).
 ### 7.5 Sequence
 
 GDB (native) → tshark capture → QEMU+gdbstub → Android emulator+Frida → Renode.
+
+## 8. Connected mode — login + cloud project picker ✅
+
+Local-only was the testing gap ("I can't even log in and pick my projects").
+Connected mode closes it while keeping local-first the default.
+
+### 8.1 Login (browser device flow, no terminal)
+
+BINNY shares the openbin CLI's credentials (`~/.config/openbin/credentials.json`),
+but the desktop can't tell a user to go run `openbin login`. So the OAuth 2.0
+device authorization grant (RFC 8628) — the same flow the CLI uses — is ported
+into `internal/auth/login.go`:
+
+- `auth.StartDeviceLogin(ep)` → `{user_code, verification_uri_complete}`.
+- `auth.(*DeviceLogin).Poll(ctx, ep)` → polls the token endpoint, saves the
+  tokens to the shared file, returns the `Account` (email/username from the JWT).
+- `auth.Status(ep)` / `auth.Logout()` for the UI. `config.DeviceAuthEndpoint()`
+  is the new Keycloak URL.
+
+A login done in the desktop also works for the CLI/TUI, and vice-versa.
+
+### 8.2 Routes (`internal/serve/connected.go`)
+
+```
+GET  /api/auth/status   who's logged in (refreshes a stale-but-valid session)
+POST /api/auth/login    SSE device flow: {code …} then {done, account} | {error}
+POST /api/auth/logout   forget stored credentials
+GET  /api/projects      the user's backend projects (openable = APK + ready)
+POST /api/project/open  SSE: fetch → download source → swap tree → {ready, root}
+```
+
+Opening a project reuses the existing cached-remote-source path
+(`tools.PrefetchSourceTree` → `store.RemoteTreeDir(id)/src`) and then calls the
+same `setDir` swap that GUI decompile uses — so `/api/files`, `/api/file`,
+`/api/chat` and findings all work against a cloud project unchanged. A re-open of
+an already-cached project is instant. The served `server` now tracks the backing
+project id (`curPID`, surfaced at `/api/health`).
+
+### 8.3 Frontend
+
+A **☁ Cloud** button in the top bar opens a modal: signed out → "Sign in with
+your browser" (opens the verification URL, shows the short code, waits); signed
+in → the account line + a list of your projects. Non-APK projects (no browsable
+source tree) are shown disabled. Picking an APK streams open-progress into the
+chat and swaps Explorer to the cloud tree. Local analysis (drop an APK) still
+needs no login.
+
+Honest scope: non-APK projects (BIN/SCRIPT) list but don't open — they have no
+source tree, only an analysis blob; wiring those into the GUI is future work.

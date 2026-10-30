@@ -50,6 +50,7 @@ type Options struct {
 	Version   string            // binny version, surfaced at /api/version
 	Dir       string            // decompiled tree to serve (optional)
 	Providers []config.Provider // configured providers, for chat with cloud models
+	Endpoints config.Endpoints  // backend + Keycloak URLs for connected mode
 }
 
 // Run starts the HTTP server and blocks until the context is cancelled or the
@@ -66,7 +67,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Dir = abs
 	}
 
-	s := &server{opts: opts, curDir: opts.Dir}
+	s := &server{opts: opts, curDir: opts.Dir, ep: opts.Endpoints}
 	srv := &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),
@@ -103,9 +104,11 @@ func Run(ctx context.Context, opts Options) error {
 
 type server struct {
 	opts Options
+	ep   config.Endpoints // backend + Keycloak URLs (connected mode)
 
 	mu     sync.RWMutex
 	curDir string // the tree currently served; swappable via /api/decompile
+	curPID string // backend project id backing curDir, if any ("" = local)
 }
 
 // dir returns the tree currently being served (initially --serve-dir, later
@@ -123,7 +126,24 @@ func (s *server) dir() string {
 func (s *server) setDir(d string) {
 	s.mu.Lock()
 	s.curDir = d
+	s.curPID = "" // a local tree (dropped APK / --serve-dir), not a cloud project
 	s.mu.Unlock()
+}
+
+// setDirProject swaps the served tree to a cloud project's cached source and
+// records which backend project backs it.
+func (s *server) setDirProject(d, projectID string) {
+	s.mu.Lock()
+	s.curDir = d
+	s.curPID = projectID
+	s.mu.Unlock()
+}
+
+// projectID returns the backend project id backing the served tree, if any.
+func (s *server) projectID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.curPID
 }
 
 func (s *server) routes() http.Handler {
@@ -141,11 +161,18 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/file", s.handleFile)
 	mux.HandleFunc("/api/decompile", s.handleDecompile)
 	mux.HandleFunc("/api/chat", s.handleChat)
+
+	// Connected mode: log in to the openbin backend and open a cloud project.
+	mux.HandleFunc("/api/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("/api/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("/api/auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("/api/projects", s.handleProjects)
+	mux.HandleFunc("/api/project/open", s.handleOpenProject)
 	return withLocalCORS(mux)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != ""})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID()})
 }
 
 func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
