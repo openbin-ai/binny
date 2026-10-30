@@ -181,6 +181,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
 	mux.HandleFunc("/api/decompile", s.handleDecompile)
+	mux.HandleFunc("/api/analyze", s.handleAnalyze)
 	mux.HandleFunc("/api/chat", s.handleChat)
 
 	// Connected mode: log in to the openbin backend and open a cloud project.

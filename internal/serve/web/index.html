@@ -127,8 +127,8 @@
   <div class="chips" id="focusChips" style="display:none"></div>
   <div class="grow"></div>
   <button id="cloudBtn" title="Sign in and open one of your cloud projects">☁ Cloud</button>
-  <button id="openApk" title="Decompile an APK locally">＋ APK</button>
-  <input type="file" id="apkInput" accept=".apk,.xapk,.apks" style="display:none">
+  <button id="openApk" title="Analyze a local APK or binary (.exe/.elf/Mach-O)">＋ Open</button>
+  <input type="file" id="apkInput" style="display:none">
   <select id="modelPick" title="model"></select>
   <button id="tExplorer">Explorer</button>
   <button id="tCode">Code</button>
@@ -147,7 +147,7 @@
     <div class="convo" id="convo">
       <div class="empty" id="empty">
         <h1>Point BINNY at the target.</h1>
-        <div class="pitch">A local-first reverse-engineering agent. Pick a model (local models are auto-detected), then <b>drop an APK</b> to decompile it here, or hit <b>☁ Cloud</b> to open one of your existing projects. Open a file and ask — or hit <b>Investigate</b>.</div>
+        <div class="pitch">A local-first reverse-engineering agent. Pick a model (local models are auto-detected), then <b>drop an APK or binary</b> to analyze it here, or hit <b>☁ Cloud</b> to open one of your existing projects. Open a file and ask — or hit <b>Investigate</b>.</div>
         <div class="pitch" style="color:var(--accent2)">Your malware never leaves your machine.</div>
       </div>
     </div>
@@ -447,11 +447,37 @@ async function streamSSE(url, opts, onEvent){
   }
 }
 
-/* ---- decompile an APK locally ---- */
+/* ---- open a local file: APK → JADX, anything else → Ghidra ---- */
 $("#openApk").onclick = ()=>$("#apkInput").click();
-$("#apkInput").onchange = e=>{ if(e.target.files[0]) decompile(e.target.files[0]); e.target.value=""; };
+$("#apkInput").onchange = e=>{ if(e.target.files[0]) openLocalFile(e.target.files[0]); e.target.value=""; };
 ["dragover","drop"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); }));
-document.addEventListener("drop", e=>{ const f=e.dataTransfer?.files?.[0]; if(f && /\.(apk|xapk|apks)$/i.test(f.name)) decompile(f); });
+document.addEventListener("drop", e=>{ const f=e.dataTransfer?.files?.[0]; if(f) openLocalFile(f); });
+
+function openLocalFile(f){
+  if(!f) return;
+  if(/\.(apk|xapk|apks)$/i.test(f.name)) decompile(f); // APK → JADX source tree
+  else analyze(f);                                      // binary → Ghidra analysis
+}
+
+async function analyze(file){
+  if(state.streaming) return;
+  state.streaming = true;
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble"); bubble.style.display="block";
+  bubble.textContent = "Uploading "+file.name+"…";
+  const fd = new FormData(); fd.append("file", file);
+  try{
+    await streamSSE("/api/analyze", {method:"POST", body:fd}, ev=>{
+      if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
+      else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
+      else if(ev.type==="ready"){
+        bubble.textContent = "Analyzed "+(ev.name||file.name)+" (binary). No source tree — ask BINNY about its functions, strings, imports, or behavior below.";
+        if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
+        setTreeNote("No file tree — "+(ev.name||"this")+" is a binary. Ask BINNY in chat; it reads the Ghidra analysis directly.");
+      }
+    });
+  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  finally{ state.streaming = false; }
+}
 
 async function decompile(file){
   if(state.streaming) return;

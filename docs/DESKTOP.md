@@ -146,7 +146,9 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    ＋ APK) → `POST /api/decompile` runs the local JADX worker, streams progress
    (SSE), swaps the served tree to the result and opens Explorer. Cached by
    sha256 in the local store, so re-dropping is instant; the served dir is now
-   runtime-swappable (`internal/serve/decompile.go`). ⏭ binary/Ghidra path.
+   runtime-swappable (`internal/serve/decompile.go`). ✅ binary/Ghidra path too —
+   ＋ Open takes any file; binaries go to `POST /api/analyze` (Ghidra) and open in
+   chat mode (`internal/serve/binary.go`); see §8.5.
 7. 🟡 **Findings + report drawers**, inline code cards. Findings: ✅ — a
    `record_finding` tool pins structured findings (title/severity/CWE/file:line/
    reachability/note) that stream as `finding` SSE events into a severity-sorted
@@ -306,8 +308,19 @@ So "open a cloud binary and interrogate it" works today — fully through the
 existing toolbox, no new per-binary UI. The blob is cached (`store.SaveRemote`),
 so re-opens are instant and work offline after the first fetch.
 
-Honest scope: local *dropped* binaries still go through the TUI only — serve's
-`/api/decompile` is JADX/APK-only; wiring a local Ghidra run into the GUI (the
-TUI's `decompileLocally` already does it) is the next step. SCRIPT/zip projects
-still don't open. A richer binary UI (function list / decompiled-C viewer pane)
-beyond chat is future work; the chat tools already expose all of it.
+### 8.5 Local binary import ✅
+
+The ＋ button is now **＋ Open** and takes any file: drag in or pick an `.apk`
+(→ JADX, §8.2) or any binary (`.exe`/`.elf`/Mach-O → Ghidra). `POST /api/analyze`
+(`internal/serve/binary.go`) mirrors the APK decompile but for binaries —
+`archdetect.Detect` → `ghidra.Analyze` → `api.ParseAnalysis` → `store.Save`,
+then builds a local `api.Project` (`local:<sha12>`, kind BIN) and enters the same
+binary chat mode as a cloud BIN. Cached by sha256, so re-dropping is instant. The
+whole thing is **offline**: a local binary's analysis blob is read straight from
+the store, so the toolbox needs no backend client (`NewToolbox(nil, project)`).
+Raw images (firmware, no ELF/PE/Mach-O header) need a forced processor id the GUI
+can't prompt for yet — those still go to the CLI (`/decompile <file> <proc>`).
+
+Honest scope: SCRIPT/zip projects still don't open. A richer binary UI (function
+list / decompiled-C viewer pane) beyond chat is future work; the chat tools
+already expose all of it.
