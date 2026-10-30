@@ -261,25 +261,53 @@ A login done in the desktop also works for the CLI/TUI, and vice-versa.
 GET  /api/auth/status   who's logged in (refreshes a stale-but-valid session)
 POST /api/auth/login    SSE device flow: {code …} then {done, account} | {error}
 POST /api/auth/logout   forget stored credentials
-GET  /api/projects      the user's backend projects (openable = APK + ready)
-POST /api/project/open  SSE: fetch → download source → swap tree → {ready, root}
+GET  /api/projects      the user's backend projects (openable = APK or BIN, ready)
+POST /api/project/open  SSE: fetch → (APK) swap tree {ready,root} | (BIN) load
+                        analysis {ready,summary} | {error}
 ```
 
-Opening a project reuses the existing cached-remote-source path
-(`tools.PrefetchSourceTree` → `store.RemoteTreeDir(id)/src`) and then calls the
-same `setDir` swap that GUI decompile uses — so `/api/files`, `/api/file`,
-`/api/chat` and findings all work against a cloud project unchanged. A re-open of
-an already-cached project is instant. The served `server` now tracks the backing
-project id (`curPID`, surfaced at `/api/health`).
+Opening an **APK** reuses the cached-remote-source path
+(`tools.PrefetchSourceTree` → `store.RemoteTreeDir(id)/src`) and the same
+`setDir` swap GUI decompile uses — so `/api/files`, `/api/file`, `/api/chat` and
+findings work against it unchanged. A re-open of a cached project is instant.
+
+Opening a **binary** (BIN) has no source tree — see §8.4.
+
+The served `server` tracks the backing project id (`curPID`) and, for binaries,
+the analysis tool registry (`curReg`); both are surfaced at `/api/health`
+(`projectId`, `binary`).
 
 ### 8.3 Frontend
 
 A **☁ Cloud** button in the top bar opens a modal: signed out → "Sign in with
 your browser" (opens the verification URL, shows the short code, waits); signed
-in → the account line + a list of your projects. Non-APK projects (no browsable
-source tree) are shown disabled. Picking an APK streams open-progress into the
-chat and swaps Explorer to the cloud tree. Local analysis (drop an APK) still
-needs no login.
+in → the account line + a list of your projects. APK and binary projects are
+openable; scripts/zips are shown disabled. Picking an APK streams open-progress
+and swaps Explorer to the cloud tree; picking a binary loads its analysis and
+drops you straight into chat (Explorer notes there's no tree). Local analysis
+(drop an APK) still needs no login.
 
-Honest scope: non-APK projects (BIN/SCRIPT) list but don't open — they have no
-source tree, only an analysis blob; wiring those into the GUI is future work.
+### 8.4 Binary projects — chat over the Ghidra analysis ✅
+
+Binaries have no browsable tree (they're one analysis blob: functions with
+decompiled C, strings, imports/exports, symbols, xrefs — see the Ghidra recon in
+§7). That fits the chat-first design perfectly: there's nothing to browse, so the
+**agent is the whole surface**. Opening a BIN builds a `tools.NewToolbox(client,
+project)` + `Registry` and calls `tb.RegisterRead(reg)`, which registers the real
+binary tool set (`list_functions`, `get_function`, `get_strings`, `get_imports`,
+`get_exports`, `xrefs`, `reachability`, `search`, …) — the **same tools the TUI
+uses**, not reimplementations. `handleOpenProject` runs `get_metadata` once to
+load+cache the blob and returns it as the open summary.
+
+The serve chat agent (`agent.go`) is now registry-aware: `record_finding` is
+always offered; when `s.reg()` is set it exposes `reg.Defs()` and dispatches
+calls through `reg.Run()`; otherwise it falls back to the read-only tree tools.
+So "open a cloud binary and interrogate it" works today — fully through the
+existing toolbox, no new per-binary UI. The blob is cached (`store.SaveRemote`),
+so re-opens are instant and work offline after the first fetch.
+
+Honest scope: local *dropped* binaries still go through the TUI only — serve's
+`/api/decompile` is JADX/APK-only; wiring a local Ghidra run into the GUI (the
+TUI's `decompileLocally` already does it) is the next step. SCRIPT/zip projects
+still don't open. A richer binary UI (function list / decompiled-C viewer pane)
+beyond chat is future work; the chat tools already expose all of it.

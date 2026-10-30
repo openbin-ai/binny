@@ -147,7 +147,7 @@
     <div class="convo" id="convo">
       <div class="empty" id="empty">
         <h1>Point BINNY at the target.</h1>
-        <div class="pitch">A local-first reverse-engineering agent. Pick a model (local models are auto-detected), open a file, and ask — or hit <b>Investigate</b>.</div>
+        <div class="pitch">A local-first reverse-engineering agent. Pick a model (local models are auto-detected), then <b>drop an APK</b> to decompile it here, or hit <b>☁ Cloud</b> to open one of your existing projects. Open a file and ask — or hit <b>Investigate</b>.</div>
         <div class="pitch" style="color:var(--accent2)">Your malware never leaves your machine.</div>
       </div>
     </div>
@@ -269,6 +269,11 @@ async function loadTree(){
   if(!root){ return; }
   host.innerHTML = "";
   host.appendChild(renderNode(root, true));
+}
+function setTreeNote(text){
+  const host = $("#tree"); host.innerHTML = "";
+  const d = document.createElement("div"); d.className="status"; d.style.padding="10px"; d.textContent = text;
+  host.appendChild(d);
 }
 function renderNode(node, open){
   const wrap = document.createElement("div");
@@ -412,9 +417,15 @@ async function openProject(p){
       if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
       else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="ready"){
-        bubble.textContent = "Opened "+(ev.package||ev.name||p.name||p.id)+". Browse it in Explorer, or ask BINNY about it.";
-        await loadTree();
-        if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
+        if(ev.kind==="BIN"){
+          bubble.textContent = "Opened "+(p.name||p.id)+" (binary). No source tree — BINNY analyzes it with Ghidra-backed tools. Ask about its functions, strings, imports, or behavior below.";
+          if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
+          setTreeNote("No file tree — "+(p.name||"this")+" is a binary. Ask BINNY in chat; it reads the Ghidra analysis directly.");
+        } else {
+          bubble.textContent = "Opened "+(ev.package||ev.name||p.name||p.id)+". Browse it in Explorer, or ask BINNY about it.";
+          await loadTree();
+          if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
+        }
       }
     });
   }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }

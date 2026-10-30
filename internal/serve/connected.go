@@ -116,7 +116,7 @@ func (s *server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		out = append(out, proj{
 			ID: p.ID, Name: p.Name, Kind: string(p.Kind), Status: p.Status,
 			Ready:       p.Ready(),
-			Openable:    p.Kind == api.KindAPK && p.Ready() && !p.IsLocal(),
+			Openable:    (p.Kind == api.KindAPK || p.Kind == api.KindBIN) && p.Ready() && !p.IsLocal(),
 			PackageName: p.PackageName, Role: p.Role, CreatedAt: p.CreatedAt,
 		})
 	}
@@ -156,33 +156,51 @@ func (s *server) handleOpenProject(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
-	if p.Kind != api.KindAPK {
-		send(map[string]any{"type": "error", "error": fmt.Sprintf("only APK projects have a source tree to browse (this one is %s)", p.Kind)})
-		return
-	}
 	if !p.Ready() {
 		send(map[string]any{"type": "error", "error": fmt.Sprintf("project isn't ready to open yet (status %s)", p.Status)})
 		return
 	}
 
-	send(map[string]any{"type": "progress", "text": "Downloading decompiled source…"})
-	if err := tools.PrefetchSourceTree(client, id, logf); err != nil {
-		send(map[string]any{"type": "error", "error": err.Error()})
-		return
+	switch p.Kind {
+	case api.KindAPK:
+		// APK: download the decompiled source tree and serve it (browsable).
+		send(map[string]any{"type": "progress", "text": "Downloading decompiled source…"})
+		if err := tools.PrefetchSourceTree(client, id, logf); err != nil {
+			send(map[string]any{"type": "error", "error": err.Error()})
+			return
+		}
+		dir, err := store.RemoteTreeDir(id)
+		if err != nil {
+			send(map[string]any{"type": "error", "error": err.Error()})
+			return
+		}
+		src := filepath.Join(dir, "src")
+		s.setDirProject(src, id)
+		root, err := buildTree(src)
+		if err != nil {
+			send(map[string]any{"type": "error", "error": err.Error()})
+			return
+		}
+		send(map[string]any{"type": "ready", "kind": "APK", "root": root, "package": p.PackageName, "name": p.Name, "projectId": id})
+
+	case api.KindBIN:
+		// Binary: no source tree — give the chat agent the Ghidra-backed tools
+		// over the analysis blob (fetched + cached by the toolbox on first use).
+		send(map[string]any{"type": "progress", "text": "Loading binary analysis…"})
+		reg := tools.NewRegistry()
+		tb := tools.NewToolbox(client, p)
+		tb.RegisterRead(reg)
+		meta, isErr := reg.Run(r.Context(), "get_metadata", json.RawMessage(`{}`)) // forces the blob load
+		if isErr {
+			send(map[string]any{"type": "error", "error": meta})
+			return
+		}
+		s.setBinaryProject(id, reg)
+		send(map[string]any{"type": "ready", "kind": "BIN", "name": p.Name, "projectId": id, "summary": meta})
+
+	default:
+		send(map[string]any{"type": "error", "error": fmt.Sprintf("%s projects can't be opened in the desktop yet — only APK and binary projects", p.Kind)})
 	}
-	dir, err := store.RemoteTreeDir(id)
-	if err != nil {
-		send(map[string]any{"type": "error", "error": err.Error()})
-		return
-	}
-	src := filepath.Join(dir, "src")
-	s.setDirProject(src, id)
-	root, err := buildTree(src)
-	if err != nil {
-		send(map[string]any{"type": "error", "error": err.Error()})
-		return
-	}
-	send(map[string]any{"type": "ready", "root": root, "package": p.PackageName, "name": p.Name, "projectId": id})
 }
 
 // sseSender sets SSE headers and returns a JSON event writer, or ok=false when

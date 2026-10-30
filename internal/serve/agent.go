@@ -33,10 +33,9 @@ const (
 	toolPreviewSpan = 300
 )
 
-// agentTools exposes the tools the model may call. read_file/search_code/
-// list_files require a served tree; record_finding is always available so the
-// agent can pin structured findings into the Findings drawer.
-func (s *server) agentTools() []llm.Tool {
+// recordFindingTool is always offered so the agent can pin structured findings
+// into the Findings drawer, whatever else it's working with.
+func recordFindingTool() llm.Tool {
 	obj := func(props map[string]any, required ...string) map[string]any {
 		m := map[string]any{"type": "object", "properties": props}
 		if len(required) > 0 {
@@ -45,9 +44,7 @@ func (s *server) agentTools() []llm.Tool {
 		return m
 	}
 	str := map[string]any{"type": "string"}
-	intp := map[string]any{"type": "integer"}
-
-	tools := []llm.Tool{{
+	return llm.Tool{
 		Name: "record_finding",
 		Description: "Pin a structured finding to the Findings panel. Use for each distinct issue. " +
 			"severity is one of info|low|medium|high|critical. Include file and line when you have them, " +
@@ -57,15 +54,36 @@ func (s *server) agentTools() []llm.Tool {
 			"severity":     map[string]any{"type": "string", "enum": []string{"info", "low", "medium", "high", "critical"}},
 			"cwe":          str,
 			"file":         str,
-			"line":         intp,
+			"line":         map[string]any{"type": "integer"},
 			"reachability": map[string]any{"type": "string", "enum": []string{"proven", "likely", "unproven", "ruled_out"}},
 			"note":         str,
 		}, "title", "severity", "note"),
-	}}
-	if s.dir() == "" {
-		return tools
 	}
-	return append(tools,
+}
+
+// agentTools exposes the tools the model may call. record_finding is always
+// available. With a binary project open the agent gets the full Ghidra-backed
+// tool set (functions/strings/imports/xrefs/…) from internal/tools; with a
+// decompiled tree served it gets read-only tree tools; with neither it's a plain
+// chat.
+func (s *server) agentTools() []llm.Tool {
+	base := []llm.Tool{recordFindingTool()}
+	if reg := s.reg(); reg != nil {
+		return append(base, reg.Defs()...) // binary mode: the real BIN toolbox
+	}
+	if s.dir() == "" {
+		return base
+	}
+	obj := func(props map[string]any, required ...string) map[string]any {
+		m := map[string]any{"type": "object", "properties": props}
+		if len(required) > 0 {
+			m["required"] = required
+		}
+		return m
+	}
+	str := map[string]any{"type": "string"}
+	intp := map[string]any{"type": "integer"}
+	return append(base,
 		llm.Tool{
 			Name:        "list_files",
 			Description: "List files in the decompiled tree. Optionally scope to a subdirectory (dir) and/or filter by a path substring (filter).",
@@ -84,9 +102,24 @@ func (s *server) agentTools() []llm.Tool {
 	)
 }
 
-// runTool executes one tool call against the served tree. Returns the textual
-// result and whether it is an error result.
-func (s *server) runTool(name string, input json.RawMessage) (string, bool) {
+// runTool executes one tool call. record_finding is handled here (it feeds the
+// Findings drawer); in binary mode every other tool is dispatched to the real
+// internal/tools registry; otherwise the read-only tree tools run.
+func (s *server) runTool(ctx context.Context, name string, input json.RawMessage) (string, bool) {
+	if name == "record_finding" {
+		var in struct{ Title, Severity string }
+		_ = json.Unmarshal(input, &in)
+		if in.Title == "" || in.Severity == "" {
+			return "record_finding needs at least title and severity", true
+		}
+		return "recorded [" + in.Severity + "] " + in.Title, false
+	}
+	if reg := s.reg(); reg != nil {
+		if reg.Has(name) {
+			return reg.Run(ctx, name, input)
+		}
+		return "unknown tool: " + name, true
+	}
 	switch name {
 	case "list_files":
 		var in struct{ Dir, Filter string }
@@ -104,13 +137,6 @@ func (s *server) runTool(name string, input json.RawMessage) (string, bool) {
 		var in struct{ Regex, Dir string }
 		_ = json.Unmarshal(input, &in)
 		return s.toolSearch(in.Regex, in.Dir)
-	case "record_finding":
-		var in struct{ Title, Severity string }
-		_ = json.Unmarshal(input, &in)
-		if in.Title == "" || in.Severity == "" {
-			return "record_finding needs at least title and severity", true
-		}
-		return "recorded [" + in.Severity + "] " + in.Title, false
 	default:
 		return "unknown tool: " + name, true
 	}
@@ -268,7 +294,7 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		results := make([]llm.Block, 0, len(calls))
 		for _, c := range calls {
 			send(map[string]any{"type": "tool_call", "name": c.Name, "input": json.RawMessage(c.Input)})
-			out, isErr := s.runTool(c.Name, c.Input)
+			out, isErr := s.runTool(ctx, c.Name, c.Input)
 			// A successful finding becomes its own event for the Findings drawer.
 			if c.Name == "record_finding" && !isErr {
 				var f map[string]any

@@ -39,6 +39,7 @@ import (
 
 	"openbin.ai/binny/internal/config"
 	"openbin.ai/binny/internal/llm"
+	"openbin.ai/binny/internal/tools"
 )
 
 //go:embed web
@@ -107,8 +108,9 @@ type server struct {
 	ep   config.Endpoints // backend + Keycloak URLs (connected mode)
 
 	mu     sync.RWMutex
-	curDir string // the tree currently served; swappable via /api/decompile
-	curPID string // backend project id backing curDir, if any ("" = local)
+	curDir string          // the tree currently served; swappable via /api/decompile
+	curPID string          // backend project id backing curDir, if any ("" = local)
+	curReg *tools.Registry // binary-analysis tools when a BIN project is open (no tree)
 }
 
 // dir returns the tree currently being served (initially --serve-dir, later
@@ -127,6 +129,7 @@ func (s *server) setDir(d string) {
 	s.mu.Lock()
 	s.curDir = d
 	s.curPID = "" // a local tree (dropped APK / --serve-dir), not a cloud project
+	s.curReg = nil
 	s.mu.Unlock()
 }
 
@@ -136,14 +139,32 @@ func (s *server) setDirProject(d, projectID string) {
 	s.mu.Lock()
 	s.curDir = d
 	s.curPID = projectID
+	s.curReg = nil
 	s.mu.Unlock()
 }
 
-// projectID returns the backend project id backing the served tree, if any.
+// setBinaryProject enters binary mode: no file tree (binaries have none), just
+// the Ghidra-backed analysis tools the chat agent uses to answer about it.
+func (s *server) setBinaryProject(projectID string, reg *tools.Registry) {
+	s.mu.Lock()
+	s.curDir = ""
+	s.curPID = projectID
+	s.curReg = reg
+	s.mu.Unlock()
+}
+
+// projectID returns the backend project id backing what's open, if any.
 func (s *server) projectID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.curPID
+}
+
+// reg returns the binary-analysis tool registry when a BIN project is open.
+func (s *server) reg() *tools.Registry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.curReg
 }
 
 func (s *server) routes() http.Handler {
@@ -172,7 +193,7 @@ func (s *server) routes() http.Handler {
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID()})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID(), "binary": s.reg() != nil})
 }
 
 func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
