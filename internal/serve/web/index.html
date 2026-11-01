@@ -4,44 +4,56 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BINNY Desktop</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
+  /* BINNY palette — amber on zinc (openbin.ai brand) */
   :root{
-    --bg:#0d0f14; --panel:#141821; --panel2:#1b212d; --border:#262d3a;
-    --fg:#e6e9ef; --muted:#8b94a7; --accent:#5b8cff; --accent2:#3fd79a;
-    --user:#223052; --err:#ff6b6b; --warn:#ffcc66; --radius:10px;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --bg:#0b0d12; --panel:#15161c; --panel2:#1e2027; --border:#27272a;
+    --fg:#e6e8eb; --muted:#a1a1aa;
+    --accent:#fbbf24; --accent-h:#fcd34d; --on-accent:#1a1205;  /* amber-400/300, near-black ink */
+    --active:#26282f;                                            /* neutral selected pill (brightness, not hue) */
+    --ok:#34d399; --err:#ef4444; --warn:#fbbf24;
+    --chip-bg:#2b2410; --chip-ink:#fbbf24; --chip-bd:#4a3c14;    /* pale-amber data pill */
+    --user:#1b1c22; --radius:8px;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
   }
   :root[data-theme="light"]{
-    --bg:#f6f7f9; --panel:#fff; --panel2:#eef1f5; --border:#d8dee8;
-    --fg:#1b2030; --muted:#5a6578; --user:#dde7ff;
+    --bg:#f6f7f9; --panel:#ffffff; --panel2:#eef1f5; --border:#e4e4e7;
+    --fg:#18181b; --muted:#71717a;
+    --accent:#f59e0b; --accent-h:#d97706; --active:#e4e4e7;
+    --chip-bg:#fef3c7; --chip-ink:#92400e; --chip-bd:#fcd34d;
+    --user:#eef1f5;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{background:var(--bg);color:var(--fg);font-family:var(--sans);display:flex;flex-direction:column;overflow:hidden}
+  body{background:var(--bg);color:var(--fg);font-family:var(--sans);display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
 
   /* top bar */
-  header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap}
-  .logo{font-weight:700;letter-spacing:.5px}
-  .logo span{color:var(--accent)}
+  header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap} /* taste-skill-ignore: app-screen panel separator */
+  .logo{display:flex;align-items:center;gap:9px}
+  .logo .mark{height:28px;width:28px;background:#0b0d12;border-radius:7px;padding:3px}
+  .logo .wm{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg)} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .logo .wm .sfx{color:var(--accent)}
   .grow{flex:1}
-  select,button,.chip{font-family:var(--sans);font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer}
+  select,button,.chip{font-family:var(--sans);font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;cursor:pointer;transition:border-color .12s,background .12s,color .12s}
   button:hover,.chip:hover{border-color:var(--accent)}
-  button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  /* active chrome is neutral (brightness), not accent — the amber is reserved for data + the one primary action */
+  button.on{background:var(--active);color:var(--fg);border-color:var(--active);font-weight:600}
+  .seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .seg button{border:0;border-radius:0;background:var(--panel2)}
-  .seg button.on{background:var(--accent);color:#fff}
+  .seg button.on{background:var(--active);color:var(--fg)}
   .chips{display:flex;gap:6px;flex-wrap:wrap}
-  .chip.on{background:var(--accent2);color:#07241a;border-color:var(--accent2)}
+  .chip.on{background:var(--chip-bg);color:var(--chip-ink);border-color:var(--chip-bd)}
   .status{font-size:12px;color:var(--muted)}
 
   /* layout */
   main{flex:1;display:flex;min-height:0}
-  .drawer{width:300px;border-right:1px solid var(--border);background:var(--panel);display:none;flex-direction:column;min-height:0}
+  .drawer{width:300px;border-right:1px solid var(--border);background:var(--panel);display:none;flex-direction:column;min-height:0} /* taste-skill-ignore: app-screen panel separator */
   .drawer.open{display:flex}
-  #codeDrawer{width:46%;border-right:0;border-left:1px solid var(--border)}
-  .drawer h3{margin:0;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border)}
-  .tree{overflow:auto;padding:6px 4px;font-family:var(--mono);font-size:12.5px}
+  #codeDrawer{width:46%;border-right:0;border-left:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  .drawer h3{margin:0;padding:10px 12px;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  .tree{overflow:auto;padding:6px 4px;font-family:var(--mono);font-size:12.5px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .node{padding:2px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
   .node:hover{background:var(--panel2)}
   .node.file{color:var(--fg)}
@@ -50,11 +62,11 @@
   .kids{margin-left:12px}
 
   .codewrap{overflow:auto;flex:1;min-height:0}
-  pre.code{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.5}
-  pre.code .ln{display:inline-block;width:46px;text-align:right;padding-right:12px;margin-right:12px;color:var(--muted);border-right:1px solid var(--border);user-select:none}
-  pre.code .tok-c{color:#6b7a8d}      /* comment */
-  pre.code .tok-s{color:var(--accent2)}/* string */
-  pre.code .tok-k{color:var(--accent)} /* keyword */
+  pre.code{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.5} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  pre.code .ln{display:inline-block;width:46px;text-align:right;padding-right:12px;margin-right:12px;color:var(--muted);border-right:1px solid var(--border);user-select:none} /* taste-skill-ignore: app-screen panel separator */
+  pre.code .tok-c{color:var(--muted)}  /* comment */
+  pre.code .tok-s{color:#fbbf24}       /* string / data — amber (brand code-ref) */
+  pre.code .tok-k{color:#c084fc}       /* keyword / function — purple (brand code-ref data) taste-skill-ignore */
 
   /* conversation */
   #chat{flex:1;display:flex;flex-direction:column;min-width:0}
@@ -66,41 +78,47 @@
   .msg.user .bubble{background:var(--user)}
   .msg.err .bubble{border-color:var(--err);color:var(--err)}
   .tools{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
-  .tool-card{border:1px solid var(--border);border-radius:8px;background:var(--panel2);font-family:var(--mono);font-size:12px}
+  .tool-card{border:1px solid var(--border);border-radius:8px;background:var(--panel2);font-family:var(--mono);font-size:12px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .tool-card .head{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer}
   .tool-card .dot{width:8px;height:8px;border-radius:50%;background:var(--warn)}
-  .tool-card.ok .dot{background:var(--accent2)} .tool-card.fail .dot{background:var(--err)}
+  .tool-card.ok .dot{background:var(--ok)} .tool-card.fail .dot{background:var(--err)}
   .tool-card .tname{color:var(--accent)} .tool-card .targ{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .tool-card .body{display:none;padding:0 10px 9px;white-space:pre-wrap;color:var(--muted);max-height:220px;overflow:auto}
   .tool-card.open .body{display:block}
   .findings{overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
   .finding{border:1px solid var(--border);border-left-width:4px;border-radius:8px;background:var(--panel2);padding:9px 11px}
   .finding .ft{font-weight:600;font-size:13px}
-  .finding .fm{font-size:11px;color:var(--muted);margin:3px 0;font-family:var(--mono)}
+  .finding .fm{font-size:11px;color:var(--muted);margin:3px 0;font-family:var(--mono)} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .finding .fn{font-size:12.5px;line-height:1.5}
   .sev{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:4px;color:#07120e}
   .sev-critical{background:#ff5c7a;color:#fff} .sev-high{background:#ff8a5c;color:#fff}
-  .sev-medium{background:var(--warn)} .sev-low{background:var(--accent2)} .sev-info{background:#7f8da3;color:#fff}
+  .sev-medium{background:var(--warn)} .sev-low{background:#38bdf8} .sev-info{background:#7f8da3;color:#fff}
   .finding.s-critical{border-left-color:#ff5c7a} .finding.s-high{border-left-color:#ff8a5c}
-  .finding.s-medium{border-left-color:var(--warn)} .finding.s-low{border-left-color:var(--accent2)} .finding.s-info{border-left-color:#7f8da3}
-  #findCount{margin-left:5px;font-size:11px;color:var(--accent2)}
-  .empty{color:var(--muted);text-align:center;margin-top:12vh}
-  .empty h1{font-weight:700;font-size:26px;margin:.2em 0}
-  .empty .pitch{font-size:13px;max-width:420px;margin:10px auto}
+  .finding.s-medium{border-left-color:var(--warn)} .finding.s-low{border-left-color:#38bdf8} .finding.s-info{border-left-color:#7f8da3}
+  #findCount{margin-left:5px;font-size:11px;color:var(--muted)}
+  .empty{color:var(--muted);text-align:center;margin-top:11vh;padding:0 20px}
+  .empty .hero-mark{width:56px;height:56px;opacity:.95;margin-bottom:14px}
+  .empty h1{font-weight:600;font-size:24px;letter-spacing:-.01em;margin:.2em 0;color:var(--fg)}
+  .empty .pitch{font-size:14px;line-height:1.55;max-width:460px;margin:10px auto}
+  .empty .pitch.amber{color:var(--accent);font-size:13px;margin-top:14px}
 
-  .composer{border-top:1px solid var(--border);background:var(--panel);padding:12px}
+  .composer{border-top:1px solid var(--border);background:var(--panel);padding:12px} /* taste-skill-ignore: app-screen panel separator */
   .composer .inner{display:flex;gap:8px;align-items:flex-end}
   textarea{flex:1;resize:none;min-height:44px;max-height:180px;background:var(--panel2);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-family:var(--sans);font-size:14px}
   textarea:focus{outline:none;border-color:var(--accent)}
-  .send{background:var(--accent);color:#fff;border-color:var(--accent);padding:11px 16px}
+  .send{background:var(--accent);color:var(--on-accent);border-color:var(--accent);padding:11px 16px;font-weight:600}
+  .send:hover{background:var(--accent-h);border-color:var(--accent-h)}
+  /* Investigate is the secondary action — a neutral outline, so only Send carries the accent */
+  .send.ghost{background:transparent;color:var(--fg);border-color:var(--border)}
+  .send.ghost:hover{border-color:var(--accent);background:transparent}
   .ctxbar{max-width:760px;margin:0 auto 8px;padding:0 20px;font-size:12px;color:var(--muted)}
-  .ctxbar b{color:var(--accent2)}
+  .ctxbar b{color:var(--accent)}
 
   /* cloud modal (connected mode) */
   .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;z-index:50}
   .overlay.open{display:flex}
-  .modal{margin-top:8vh;width:580px;max-width:92vw;max-height:80vh;background:var(--panel);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)}
-  .modal .mhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .modal{margin-top:8vh;width:580px;max-width:92vw;max-height:80vh;background:var(--panel);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)} /* dialog floats — shadow allowed taste-skill-ignore */
+  .modal .mhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
   .modal .mhead b{font-size:14px}
   .modal .mbody{padding:14px 16px;overflow:auto}
   .acct{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
@@ -109,32 +127,33 @@
   .prow:hover{border-color:var(--accent)}
   .prow.disabled{opacity:.45;cursor:not-allowed}
   .prow .pn{flex:1;min-width:0}
+  .prow .kindtag{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:2px 5px;min-width:38px;text-align:center} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .prow .pn .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .prow .pn .s{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .badge{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--border);color:var(--muted)}
-  .code-box{font-family:var(--mono);font-size:22px;letter-spacing:3px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center;margin:12px 0}
+  .code-box{font-family:var(--mono);font-size:22px;letter-spacing:3px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center;margin:12px 0} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .mbtn{background:var(--accent);color:#fff;border-color:var(--accent);padding:10px 16px;margin-top:4px}
   a.link{color:var(--accent)}
   input{font-family:var(--sans);font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
   input:focus{outline:none;border-color:var(--accent)}
-  #binList .row{padding:4px 8px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #binList .row{padding:4px 8px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   #binList .row:hover{background:var(--panel2)}
   #binList .row .addr{color:var(--muted);margin-right:8px}
   #binList .row.ext{color:var(--muted)}
-  #binList .str{padding:3px 8px;font-family:var(--mono);font-size:12px;color:var(--accent2);white-space:pre-wrap;word-break:break-all}
+  #binList .str{padding:3px 8px;font-family:var(--mono);font-size:12px;color:#fbbf24;white-space:pre-wrap;word-break:break-all} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
 </style>
 </head>
 <body>
 <header>
-  <div class="logo">BINNY<span>·</span>Desktop</div>
+  <div class="logo"><img class="mark" src="binny-mark.png" alt="BINNY"><span class="wm">BINNY<span class="sfx">·Desktop</span></span></div>
   <div class="seg" id="modeSeg">
     <button data-mode="MALWARE" class="on">Malware</button>
     <button data-mode="VULN_RESEARCH">Vuln</button>
   </div>
   <div class="chips" id="focusChips" style="display:none"></div>
   <div class="grow"></div>
-  <button id="cloudBtn" title="Sign in and open one of your cloud projects">☁ Cloud</button>
-  <button id="openApk" title="Analyze a local APK or binary (.exe/.elf/Mach-O)">＋ Open</button>
+  <button id="cloudBtn" title="Sign in and open one of your cloud projects">Cloud</button>
+  <button id="openApk" title="Analyze a local APK or binary (.exe/.elf/Mach-O)">Open</button>
   <input type="file" id="apkInput" style="display:none">
   <select id="modelPick" title="model"></select>
   <button id="tExplorer">Explorer</button>
@@ -154,16 +173,17 @@
   <section id="chat">
     <div class="convo" id="convo">
       <div class="empty" id="empty">
-        <h1>Point BINNY at the target.</h1>
-        <div class="pitch">A local-first reverse-engineering agent. Pick a model (local models are auto-detected), then <b>drop an APK or binary</b> to analyze it here, or hit <b>☁ Cloud</b> to open one of your existing projects. Open a file and ask — or hit <b>Investigate</b>.</div>
-        <div class="pitch" style="color:var(--accent2)">Your malware never leaves your machine.</div>
+        <img class="hero-mark" src="binny-mark.png" alt="">
+        <h1>Point BINNY at the target</h1>
+        <p class="pitch">A local-first reverse-engineering agent. Pick a model, then drop an APK or binary to analyze it here, or open one of your cloud projects. Open a file and ask, or hit Investigate.</p>
+        <p class="pitch amber">Your malware never leaves your machine.</p>
       </div>
     </div>
     <div class="composer">
       <div class="ctxbar" id="ctxbar" style="display:none"></div>
       <div class="inner">
         <textarea id="input" placeholder="Ask BINNY about this target…  (Enter to send, Shift+Enter for newline)"></textarea>
-        <button class="send" id="investigate" title="Turn the agent loose on the tree (lists, searches, reads, reports)">Investigate</button>
+        <button class="send ghost" id="investigate" title="Turn the agent loose on the tree (lists, searches, reads, reports)">Investigate</button>
         <button class="send" id="send">Send</button>
       </div>
     </div>
@@ -209,7 +229,7 @@
       <span class="acct" id="acctLine"></span>
       <div class="grow"></div>
       <button id="signOut" style="display:none">Sign out</button>
-      <button id="cloudClose" title="Close">✕</button>
+      <button id="cloudClose" title="Close">Close</button>
     </div>
     <div class="mbody" id="cloudBody"></div>
   </div>
@@ -241,12 +261,12 @@ async function loadModels(){
   try {
     const {runtimes} = await api("/api/local-models");
     for(const rt of (runtimes||[])) for(const m of rt.models)
-      opts.push({label:`🖥 ${rt.name}: ${m}`, baseURL:rt.baseURL, model:m});
+      opts.push({label:`${rt.name}: ${m}`, baseURL:rt.baseURL, model:m});
   } catch {}
   try {
     const {providers} = await api("/api/config");
     for(const p of (providers||[])) if(p.ready) for(const m of (p.models||[]))
-      opts.push({label:`☁ ${p.id}: ${m}`, providerId:p.id, model:m});
+      opts.push({label:`${p.id}: ${m}`, providerId:p.id, model:m});
   } catch {}
   if(!opts.length){
     const o = document.createElement("option");
@@ -425,8 +445,8 @@ async function loadAuth(){
 }
 function updateAcct(){
   const a = auth.account, btn = $("#cloudBtn");
-  if(a && a.loggedIn){ btn.textContent = "☁ "+(a.username||a.email||"Cloud"); btn.classList.add("on"); }
-  else { btn.textContent = "☁ Cloud"; btn.classList.remove("on"); }
+  if(a && a.loggedIn){ btn.textContent = (a.username||a.email||"Cloud"); btn.classList.add("on"); }
+  else { btn.textContent = "Cloud"; btn.classList.remove("on"); }
 }
 const host = s => s.replace(/^https?:\/\//,"");
 
@@ -456,11 +476,11 @@ async function refreshCloud(){
   const plist = document.createElement("div"); plist.className="plist";
   for(const p of list){
     const row = document.createElement("div"); row.className = "prow" + (p.openable ? "" : " disabled");
-    const icon = document.createElement("div"); icon.textContent = p.kind==="APK" ? "📱" : (p.kind==="BIN" ? "⚙️" : "📄");
+    const icon = document.createElement("div"); icon.className="kindtag"; icon.textContent = p.kind;
     const nm = document.createElement("div"); nm.className="pn";
     const t = document.createElement("div"); t.className="t"; t.textContent = p.name || p.id;
     const s = document.createElement("div"); s.className="s";
-    s.textContent = [p.kind, p.packageName, p.openable ? "" : (p.kind!=="APK" ? "no source tree" : "not ready")].filter(Boolean).join(" · ");
+    s.textContent = [p.packageName, p.openable ? "" : (p.kind!=="APK"&&p.kind!=="BIN" ? "no source tree" : "not ready")].filter(Boolean).join(" · ") || "—";
     nm.appendChild(t); nm.appendChild(s);
     const badge = document.createElement("span"); badge.className="badge"; badge.textContent = p.ready ? "ready" : (p.status||"").toLowerCase();
     row.appendChild(icon); row.appendChild(nm); row.appendChild(badge);
