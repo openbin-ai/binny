@@ -45,6 +45,14 @@
   .seg button.on{background:var(--active);color:var(--fg)}
   .chips{display:flex;gap:6px;flex-wrap:wrap}
   .chip.on{background:var(--chip-bg);color:var(--chip-ink);border-color:var(--chip-bd)}
+  /* focus dropdown (multi-select) — keeps the navbar to one line */
+  .focus{position:relative}
+  #focusBtn.on{background:var(--chip-bg);color:var(--chip-ink);border-color:var(--chip-bd)}
+  .focus-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:40;min-width:260px;max-height:320px;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 12px 30px rgba(0,0,0,.4);display:grid;grid-template-columns:1fr 1fr;gap:1px} /* popover floats — shadow allowed taste-skill-ignore */
+  .focus-menu[hidden]{display:none}
+  .focus-menu label{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+  .focus-menu label:hover{background:var(--panel2)}
+  .focus-menu input{accent-color:var(--accent);margin:0}
   .status{font-size:12px;color:var(--muted)}
 
   /* layout */
@@ -70,13 +78,26 @@
 
   /* conversation */
   #chat{flex:1;display:flex;flex-direction:column;min-width:0}
-  .convo{flex:1;overflow:auto;padding:24px 0}
+  .convo{flex:1;overflow:auto;padding:24px 20px}
   .inner{max-width:760px;margin:0 auto;padding:0 20px}
-  .msg{margin:0 0 18px}
+  .msg{max-width:760px;margin:0 auto 18px}   /* centered column with gutters — not glued to the edge */
   .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
-  .bubble{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;white-space:pre-wrap;word-wrap:break-word;line-height:1.55}
-  .msg.user .bubble{background:var(--user)}
-  .msg.err .bubble{border-color:var(--err);color:var(--err)}
+  .bubble{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;word-wrap:break-word;overflow-wrap:anywhere;line-height:1.6}
+  .msg.user .bubble{background:var(--user);white-space:pre-wrap}
+  .msg.err .bubble{border-color:var(--err);color:var(--err);white-space:pre-wrap}
+  /* rendered markdown inside assistant bubbles */
+  .bubble p{margin:0 0 10px} .bubble > :last-child{margin-bottom:0}
+  .bubble ul,.bubble ol{margin:0 0 10px;padding-left:22px} .bubble li{margin:3px 0}
+  .bubble h1,.bubble h2,.bubble h3,.bubble h4{margin:14px 0 6px;font-size:15px;font-weight:600;line-height:1.3}
+  .bubble code{font-family:var(--mono);font-size:12.5px;background:var(--panel2);border-radius:4px;padding:1px 5px} /* taste-skill-ignore: inline code */
+  .bubble pre{background:var(--panel2);border-radius:8px;padding:11px 13px;overflow:auto;margin:0 0 10px}
+  .bubble pre code{background:none;padding:0}
+  .bubble a{color:var(--accent);text-underline-offset:2px}
+  .bubble strong{font-weight:700} .bubble em{font-style:italic}
+  .typing{display:inline-flex;gap:5px;align-items:center;padding:2px 0}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:tb 1s infinite}
+  .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
+  @keyframes tb{0%,60%,100%{opacity:.25;transform:translateY(0)} 30%{opacity:1;transform:translateY(-2px)}}
   .tools{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
   .tool-card{border:1px solid var(--border);border-radius:8px;background:var(--panel2);font-family:var(--mono);font-size:12px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .tool-card .head{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer}
@@ -150,10 +171,13 @@
     <button data-mode="MALWARE" class="on">Malware</button>
     <button data-mode="VULN_RESEARCH">Vuln</button>
   </div>
-  <div class="chips" id="focusChips" style="display:none"></div>
+  <div class="focus" id="focus">
+    <button id="focusBtn" type="button" title="Scope the analysis so BINNY knows where to look">Focus</button>
+    <div class="focus-menu" id="focusMenu" hidden></div>
+  </div>
   <div class="grow"></div>
   <button id="cloudBtn" title="Sign in and open one of your cloud projects">Cloud</button>
-  <button id="openApk" title="Analyze a local APK or binary (.exe/.elf/Mach-O)">Open</button>
+  <button id="openApk" title="Analyze a local file — a binary (.exe/.elf/Mach-O) or an APK">Open</button>
   <input type="file" id="apkInput" style="display:none">
   <select id="modelPick" title="model"></select>
   <button id="tExplorer">Explorer</button>
@@ -175,7 +199,7 @@
       <div class="empty" id="empty">
         <img class="hero-mark" src="binny-mark.png" alt="">
         <h1>Point BINNY at the target</h1>
-        <p class="pitch">A local-first reverse-engineering agent. Pick a model, then drop an APK or binary to analyze it here, or open one of your cloud projects. Open a file and ask, or hit Investigate.</p>
+        <p class="pitch">A local-first reverse-engineering agent for binaries, APKs, and scripts. Pick a model, then drop a file to analyze it here, or open one of your cloud projects. Open a file and ask, or hit Investigate.</p>
         <p class="pitch amber">Your malware never leaves your machine.</p>
       </div>
     </div>
@@ -252,6 +276,28 @@ const state = {
 };
 
 const VULN_CLASSES = ["memory","auth","crypto","injection","path-traversal","deserialization","ssrf","race","secrets"];
+// STIX 2.1 malware-type-ov (curated) — selecting these tells BINNY which malicious
+// behaviors to prioritize, so it doesn't waste tokens looking everywhere.
+const MALWARE_CLASSES = ["backdoor","rat","trojan","ransomware","spyware","keylogger","rootkit","bootkit","dropper","downloader","bot","worm","wiper","webshell","adware","ddos","exploit-kit"];
+function chipClasses(){ return state.mode==="VULN_RESEARCH" ? VULN_CLASSES : MALWARE_CLASSES; }
+function renderFocus(){
+  const menu = $("#focusMenu"); menu.innerHTML = ""; state.focus = new Set();
+  chipClasses().forEach(k=>{
+    const lab = document.createElement("label");
+    const cb = document.createElement("input"); cb.type="checkbox"; cb.value=k;
+    cb.onchange = ()=>{ cb.checked ? state.focus.add(k) : state.focus.delete(k); updateFocusBtn(); };
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(k));
+    menu.appendChild(lab);
+  });
+  updateFocusBtn();
+}
+function updateFocusBtn(){
+  const n = state.focus.size, b = $("#focusBtn");
+  b.textContent = n ? `Focus · ${n}` : "Focus";
+  b.classList.toggle("on", n>0);
+}
+$("#focusBtn").onclick = e=>{ e.stopPropagation(); const m=$("#focusMenu"); m.hidden = !m.hidden; };
+document.addEventListener("click", e=>{ if(!$("#focus").contains(e.target)) $("#focusMenu").hidden = true; });
 
 /* ---- model picker ---- */
 async function loadModels(){
@@ -282,19 +328,11 @@ async function loadModels(){
 
 /* ---- mode + focus ---- */
 $("#modeSeg").addEventListener("click", e=>{
-  const b = e.target.closest("button"); if(!b) return;
+  const b = e.target.closest("button"); if(!b || b.dataset.mode===state.mode) return;
   state.mode = b.dataset.mode;
   [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x===b));
-  $("#focusChips").style.display = state.mode==="VULN_RESEARCH" ? "flex":"none";
+  renderFocus(); // rebuild the focus dropdown for the mode
 });
-(function buildChips(){
-  const c = $("#focusChips");
-  VULN_CLASSES.forEach(k=>{
-    const b = document.createElement("div"); b.className="chip"; b.textContent=k;
-    b.onclick=()=>{ b.classList.toggle("on"); b.classList.contains("on")?state.focus.add(k):state.focus.delete(k); };
-    c.appendChild(b);
-  });
-})();
 
 /* ---- drawers ---- */
 $("#tExplorer").onclick = ()=>toggle("#explorerDrawer","#tExplorer");
@@ -518,11 +556,11 @@ async function openProject(p){
   $("#cloudModal").classList.remove("open");
   if(state.streaming) return;
   state.streaming = true;
-  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble"); bubble.style.display="block";
-  bubble.textContent = "Opening "+(p.name||p.id)+"…";
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
+  showProgress(bubble, "Opening "+(p.name||p.id)+"…");
   try{
     await streamSSE("/api/project/open?id="+encodeURIComponent(p.id), {method:"POST"}, async ev=>{
-      if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
+      if(ev.type==="progress"){ showProgress(bubble, ev.text); }
       else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="ready"){
         if(ev.kind==="BIN"){
@@ -572,12 +610,12 @@ function openLocalFile(f){
 async function analyze(file, processor){
   if(state.streaming) return;
   state.streaming = true;
-  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble"); bubble.style.display="block";
-  bubble.textContent = "Uploading "+file.name+"…";
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
+  showProgress(bubble, "Uploading "+file.name+"…");
   const fd = new FormData(); fd.append("file", file); if(processor) fd.append("processor", processor);
   try{
     await streamSSE("/api/analyze", {method:"POST", body:fd}, ev=>{
-      if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
+      if(ev.type==="progress"){ showProgress(bubble, ev.text); }
       else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="need_processor"){
         bubble.textContent = ev.note || "Pick a CPU architecture:";
@@ -602,8 +640,8 @@ async function analyze(file, processor){
 async function decompile(file){
   if(state.streaming) return;
   state.streaming = true;
-  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble"); bubble.style.display="block";
-  bubble.textContent = "Uploading "+file.name+"…";
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
+  showProgress(bubble, "Uploading "+file.name+"…");
   const fd = new FormData(); fd.append("apk", file);
   try{
     const res = await fetch("/api/decompile",{method:"POST",body:fd});
@@ -615,7 +653,7 @@ async function decompile(file){
         const line = buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
         if(!line.startsWith("data:")) continue;
         const ev = JSON.parse(line.slice(5).trim());
-        if(ev.type==="progress"){ bubble.textContent = ev.text; scroll(); }
+        if(ev.type==="progress"){ showProgress(bubble, ev.text); }
         else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
         else if(ev.type==="ready"){
           bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
@@ -693,12 +731,53 @@ $("#copyReport").onclick = ()=>{ navigator.clipboard?.writeText(buildReport()); 
 function systemPrompt(){
   const lens = state.mode==="VULN_RESEARCH"
     ? "You are BINNY in VULNERABILITY RESEARCH mode. Hunt for exploitable bugs; for each, give CWE, severity, source→sink reachability, and remediation. Be rigorous; do not invent findings."
-    : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior. Be precise and evidence-based.";
-  let s = lens + " You are a local, offline reverse-engineering assistant. When a decompiled tree is available, use your tools (list_files, search_code, read_file) to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note).";
+    : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior across any target (binary, APK, script, document). Classify using the STIX 2.1 malware vocabulary. Be precise and evidence-based.";
+  let s = lens + " You are a local, offline reverse-engineering assistant. Use your available tools to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note). Format replies in Markdown.";
   if(state.mode==="VULN_RESEARCH" && state.focus.size) s += " Scope strictly to these vulnerability classes: "+[...state.focus].join(", ")+".";
+  if(state.mode==="MALWARE" && state.focus.size) s += " Prioritize evidence of these STIX 2.1 malware types/behaviors: "+[...state.focus].join(", ")+"; for each, cite the specific strings, API calls, or code that support it.";
   if(state.openFile) s += "\n\nThe analyst is looking at `"+state.openFile.path+"`:\n```\n"+state.openFile.content.slice(0,24000)+"\n```";
   return s;
 }
+/* tiny, dependency-free markdown → HTML for assistant replies. Escapes first,
+   so the model's text can never inject HTML; only http(s) links are linkified. */
+function renderMarkdown(src){
+  let s = String(src).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const blocks=[];
+  s = s.replace(/```([\s\S]*?)```/g,(m,code)=>{
+    code = code.replace(/^[a-zA-Z0-9_+-]*\n/,"");           // drop a leading ```lang line
+    blocks.push("<pre><code>"+code.replace(/\n+$/,"")+"</code></pre>");
+    return "\u0000"+(blocks.length-1)+"\u0000";
+  });
+  const inline = t => t
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/__([^_]+)__/g,"<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g,"$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const lines = s.split("\n"); const out=[]; let i=0;
+  while(i<lines.length){
+    const ln = lines[i];
+    if(/^\u0000\d+\u0000$/.test(ln.trim())){ out.push(ln.trim()); i++; continue; }
+    const h = ln.match(/^(#{1,6})\s+(.*)$/);
+    if(h){ out.push("<h4>"+inline(h[2])+"</h4>"); i++; continue; }
+    if(/^\s*[-*]\s+/.test(ln)){ const it=[]; while(i<lines.length && /^\s*[-*]\s+/.test(lines[i])){ it.push("<li>"+inline(lines[i].replace(/^\s*[-*]\s+/,""))+"</li>"); i++; } out.push("<ul>"+it.join("")+"</ul>"); continue; }
+    if(/^\s*\d+\.\s+/.test(ln)){ const it=[]; while(i<lines.length && /^\s*\d+\.\s+/.test(lines[i])){ it.push("<li>"+inline(lines[i].replace(/^\s*\d+\.\s+/,""))+"</li>"); i++; } out.push("<ol>"+it.join("")+"</ol>"); continue; }
+    if(ln.trim()===""){ i++; continue; }
+    const para=[ln]; i++;
+    while(i<lines.length && lines[i].trim()!=="" && !/^(#{1,6})\s+/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i]) && !/^\s*\d+\.\s+/.test(lines[i]) && !/^\u0000\d+\u0000$/.test(lines[i].trim())){ para.push(lines[i]); i++; }
+    out.push("<p>"+inline(para.join("<br>"))+"</p>");
+  }
+  return out.join("\n").replace(/\u0000(\d+)\u0000/g,(m,n)=>blocks[+n]);
+}
+const TYPING = '<span class="typing"><i></i><i></i><i></i></span>';
+// a live status line with an animated spinner, so long jobs (JADX/Ghidra) never look frozen
+function showProgress(bubble, text){
+  bubble.style.display = "block";
+  bubble.innerHTML = '<span class="pstatus"></span> ' + TYPING;
+  bubble.querySelector(".pstatus").textContent = text;
+  scroll();
+}
+
 function addMsg(role, text){
   $("#empty")?.remove();
   const m = document.createElement("div"); m.className="msg "+role;
@@ -731,6 +810,7 @@ async function send(prefix){
   state.messages.push({role:"user", text});
   const msgEl = addMsg("assistant", "");
   const bubble = msgEl.querySelector(".bubble");
+  bubble.style.display = "block"; bubble.innerHTML = TYPING; scroll(); // show activity at once
   let pendingCard = null;
   state.streaming = true; $("#send").disabled = $("#investigate").disabled = true;
 
@@ -753,15 +833,16 @@ async function send(prefix){
         const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
         if(!line.startsWith("data:")) continue;
         const ev = JSON.parse(line.slice(5).trim());
-        if(ev.type==="chunk"){ acc += ev.text; bubble.style.display="block"; bubble.textContent = acc; scroll(); }
-        else if(ev.type==="tool_call"){ pendingCard = addToolCard(msgEl, ev.name, ev.input); }
+        if(ev.type==="chunk"){ acc += ev.text; bubble.innerHTML = renderMarkdown(acc); scroll(); }
+        else if(ev.type==="tool_call"){ if(!acc) bubble.innerHTML = TYPING; pendingCard = addToolCard(msgEl, ev.name, ev.input); }
         else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent = ev.preview||""; pendingCard=null; } }
         else if(ev.type==="finding"){ addFinding(ev); }
         else if(ev.type==="error"){ msgEl.className="msg err"; bubble.style.display="block"; bubble.textContent = ev.error; }
         else if(ev.type==="done"){ /* ev.model, ev.note */ }
       }
     }
-    if(acc) state.messages.push({role:"assistant", text:acc});
+    if(acc){ bubble.innerHTML = renderMarkdown(acc); state.messages.push({role:"assistant", text:acc}); }
+    else if(!bubble.querySelector(".tool-card") && bubble.innerHTML===TYPING){ bubble.style.display="none"; } // nothing came back
   }catch(e){ bubble.parentElement.className="msg err"; bubble.textContent = String(e); }
   state.streaming=false; $("#send").disabled=$("#investigate").disabled=false;
 }
@@ -778,7 +859,7 @@ inputEl.addEventListener("input", autoSize);
 function autoSize(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,180)+"px"; }
 
 /* ---- boot ---- */
-loadModels(); loadTree(); loadAuth(); loadBinaryPanel();
+renderFocus(); loadModels(); loadTree(); loadAuth(); loadBinaryPanel();
 </script>
 </body>
 </html>

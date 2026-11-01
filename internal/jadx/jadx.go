@@ -109,6 +109,9 @@ func postAPK(ctx context.Context, c *worker.Container, apkPath, outTarGz string)
 		return fmt.Errorf("worker /decompile returned %d: %s", resp.StatusCode, worker.Abbrev(string(body), 500))
 	}
 
+	if err := os.MkdirAll(filepath.Dir(outTarGz), 0o755); err != nil {
+		return fmt.Errorf("create output dir %s: %w", filepath.Dir(outTarGz), err)
+	}
 	part := outTarGz + ".part"
 	out, err := os.Create(part)
 	if err != nil {
