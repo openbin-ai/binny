@@ -119,3 +119,71 @@ func TestRecordFindingEmitsEvent(t *testing.T) {
 		t.Errorf("finding fields = %+v", finding)
 	}
 }
+
+// artifactProvider writes an artifact on turn 1 (with usage), then answers.
+type artifactProvider struct{ turn int }
+
+func (f *artifactProvider) Name() string { return "fake" }
+func (f *artifactProvider) Stream(ctx context.Context, req llm.Request, onText func(string)) (*llm.Response, error) {
+	f.turn++
+	if f.turn == 1 {
+		return &llm.Response{
+			StopReason: llm.StopToolUse,
+			Usage:      llm.Usage{InputTokens: 1200, OutputTokens: 80},
+			Blocks: []llm.Block{{
+				Kind: llm.BlockToolUse, ToolID: "a1", ToolName: "write_artifact",
+				Input: json.RawMessage(`{"title":"AES decryptor","language":"python","kind":"decryptor","content":"print('x')"}`),
+			}},
+		}, nil
+	}
+	return &llm.Response{StopReason: llm.StopEndTurn, Model: "fake",
+		Usage:  llm.Usage{InputTokens: 1300, OutputTokens: 40},
+		Blocks: []llm.Block{llm.TextBlock("Done.")}}, nil
+}
+
+func TestAgentEmitsArtifactAndUsage(t *testing.T) {
+	s := &server{opts: Options{}}
+	var events []map[string]any
+	send := func(ev map[string]any) { events = append(events, ev) }
+
+	s.runAgentLoop(context.Background(), &artifactProvider{}, llm.Request{
+		Messages: []llm.Message{llm.UserText("write a decryptor")},
+		Tools:    s.agentTools(),
+	}, send)
+
+	var art, usage map[string]any
+	for _, e := range events {
+		if e["type"] == "artifact" {
+			art = e
+		}
+		if e["type"] == "usage" {
+			usage = e // keep the last
+		}
+	}
+	if art == nil || art["title"] != "AES decryptor" || art["language"] != "python" {
+		t.Fatalf("artifact event wrong: %v", art)
+	}
+	if usage == nil {
+		t.Fatal("no usage event emitted")
+	}
+	if usage["output"].(int) != 40 {
+		t.Errorf("usage output = %v, want 40", usage["output"])
+	}
+	// write_artifact must be offered even with no tree/binary open.
+	var names []string
+	for _, d := range s.agentTools() {
+		names = append(names, d.Name)
+	}
+	if !contains(names, "write_artifact") || !contains(names, "record_finding") {
+		t.Errorf("base tools missing write_artifact/record_finding: %v", names)
+	}
+}
+
+func contains(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}

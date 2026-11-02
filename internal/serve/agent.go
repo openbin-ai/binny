@@ -25,7 +25,7 @@ import (
 // builds on, and it runs fully offline against a tool-capable local model.
 
 const (
-	maxAgentIters   = 16
+	maxAgentIters   = 24
 	maxListFiles    = 400
 	maxSearchHits   = 60
 	maxSearchFile   = 1 << 20 // skip files larger than this in search
@@ -66,8 +66,33 @@ func recordFindingTool() llm.Tool {
 // tool set (functions/strings/imports/xrefs/…) from internal/tools; with a
 // decompiled tree served it gets read-only tree tools; with neither it's a plain
 // chat.
+// writeArtifactTool lets the agent emit generated code — a malware decryptor, a
+// vuln PoC, a YARA rule, a helper script — into the Artifacts panel. Always
+// available, like record_finding.
+func writeArtifactTool() llm.Tool {
+	obj := func(props map[string]any, required ...string) map[string]any {
+		m := map[string]any{"type": "object", "properties": props}
+		if len(required) > 0 {
+			m["required"] = required
+		}
+		return m
+	}
+	str := map[string]any{"type": "string"}
+	return llm.Tool{
+		Name: "write_artifact",
+		Description: "Create a code artifact (shown in the Artifacts panel, copyable/downloadable): a malware decryptor/unpacker, a vulnerability PoC/exploit, a YARA/Sigma rule, or a helper script. " +
+			"Provide a short title, the language (e.g. python, c, go, yara, bash), a kind (decryptor|poc|yara|script|other), and the full runnable content. Prefer this over pasting long code into chat.",
+		InputSchema: obj(map[string]any{
+			"title":    str,
+			"language": str,
+			"kind":     map[string]any{"type": "string", "enum": []string{"decryptor", "poc", "yara", "script", "other"}},
+			"content":  str,
+		}, "title", "language", "content"),
+	}
+}
+
 func (s *server) agentTools() []llm.Tool {
-	base := []llm.Tool{recordFindingTool()}
+	base := []llm.Tool{recordFindingTool(), writeArtifactTool()}
 	if reg := s.reg(); reg != nil {
 		return append(base, reg.Defs()...) // binary mode: the real BIN toolbox
 	}
@@ -113,6 +138,14 @@ func (s *server) runTool(ctx context.Context, name string, input json.RawMessage
 			return "record_finding needs at least title and severity", true
 		}
 		return "recorded [" + in.Severity + "] " + in.Title, false
+	}
+	if name == "write_artifact" {
+		var in struct{ Title, Content string }
+		_ = json.Unmarshal(input, &in)
+		if in.Title == "" || in.Content == "" {
+			return "write_artifact needs at least title and content", true
+		}
+		return "created artifact: " + in.Title, false
 	}
 	if reg := s.reg(); reg != nil {
 		if reg.Has(name) {
@@ -284,6 +317,17 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 			send(map[string]any{"type": "error", "error": err.Error()})
 			return
 		}
+		// Token accounting for the counter + budget. context = the full prompt size
+		// of THIS call (how big the conversation has grown); input/output are the
+		// billed deltas this call adds to the session total.
+		u := resp.Usage
+		send(map[string]any{
+			"type":    "usage",
+			"input":   u.InputTokens + u.CacheCreationTokens,
+			"output":  u.OutputTokens,
+			"cached":  u.CacheReadTokens,
+			"context": u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens,
+		})
 		calls := resp.ToolCalls()
 		if len(calls) == 0 {
 			send(map[string]any{"type": "done", "model": resp.Model})
@@ -295,7 +339,7 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		for _, c := range calls {
 			send(map[string]any{"type": "tool_call", "name": c.Name, "input": json.RawMessage(c.Input)})
 			out, isErr := s.runTool(ctx, c.Name, c.Input)
-			// A successful finding becomes its own event for the Findings drawer.
+			// A successful finding / artifact becomes its own event for its drawer.
 			if c.Name == "record_finding" && !isErr {
 				var f map[string]any
 				if json.Unmarshal(c.Input, &f) == nil {
@@ -303,12 +347,32 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 					send(f)
 				}
 			}
+			if c.Name == "write_artifact" && !isErr {
+				var a map[string]any
+				if json.Unmarshal(c.Input, &a) == nil {
+					a["type"] = "artifact"
+					send(a)
+				}
+			}
 			send(map[string]any{"type": "tool_result", "name": c.Name, "ok": !isErr, "preview": preview(out)})
 			results = append(results, llm.ToolResult(c.ID, out, isErr))
 		}
 		req.Messages = append(req.Messages, llm.Message{Role: llm.RoleUser, Blocks: results})
 	}
-	send(map[string]any{"type": "done", "model": req.Model, "note": "reached tool-call limit"})
+	// Hit the tool-call cap without a final answer. Force a conclusion: one more
+	// call with tools OFF so the model must respond in text instead of looping.
+	req.Tools = nil
+	req.Messages = append(req.Messages, llm.UserText("You've reached the investigation step limit. Stop using tools and give your conclusion now, based on what you've found so far."))
+	resp, err := provider.Stream(ctx, req, func(delta string) {
+		send(map[string]any{"type": "chunk", "text": delta})
+	})
+	if err != nil {
+		send(map[string]any{"type": "error", "error": err.Error()})
+		return
+	}
+	u := resp.Usage
+	send(map[string]any{"type": "usage", "input": u.InputTokens + u.CacheCreationTokens, "output": u.OutputTokens, "cached": u.CacheReadTokens, "context": u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens})
+	send(map[string]any{"type": "done", "model": resp.Model, "note": "reached the tool-call limit — concluded from findings so far"})
 }
 
 func preview(s string) string {

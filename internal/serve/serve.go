@@ -377,6 +377,7 @@ type chatRequest struct {
 	BaseURL    string `json:"baseURL"`    // a local server base (keyless, OpenAI-compatible)
 	Model      string `json:"model"`
 	System     string `json:"system"`
+	MaxTokens  int    `json:"maxTokens"` // output cap per turn (0 = default)
 	Messages   []struct {
 		Role string `json:"role"` // "user" | "assistant"
 		Text string `json:"text"`
@@ -432,6 +433,10 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
+	maxTok := req.MaxTokens
+	if maxTok <= 0 || maxTok > 16384 {
+		maxTok = 2048
+	}
 	// With a served tree the model gets read-only tools and investigates on its
 	// own (agent.go); without one it's a plain single-turn chat.
 	s.runAgentLoop(r.Context(), provider, llm.Request{
@@ -439,7 +444,7 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Messages:  msgs,
 		Tools:     s.agentTools(),
 		Model:     model,
-		MaxTokens: 2048,
+		MaxTokens: maxTok,
 	}, send)
 }
 

@@ -52,14 +52,47 @@
   .focus-menu[hidden]{display:none}
   .focus-menu label{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap}
   .focus-menu label:hover{background:var(--panel2)}
-  .focus-menu input{accent-color:var(--accent);margin:0}
+  .focus-menu input[type=checkbox]{accent-color:var(--accent);margin:0}
+  /* token meter */
+  .meter{font-size:12px;color:var(--muted);white-space:nowrap}
+  .meter b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+  .meter.warn b.ctx{color:var(--accent)} .meter.over b.ctx{color:var(--err)}
+  /* settings dropdown (single column with fields) */
+  .focus-menu.menu1{grid-template-columns:1fr;min-width:250px;gap:2px}
+  .fld{display:flex;flex-direction:column;gap:5px;padding:7px 8px;font-size:12px;color:var(--muted)}
+  .fld input{font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-variant-numeric:tabular-nums}
+  .fld input:focus{outline:none;border-color:var(--accent)}
+  .menu-btn{margin:6px 8px 2px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:13px;color:var(--fg);cursor:pointer}
+  .menu-btn:hover{border-color:var(--accent)}
+  .menu-note{padding:4px 9px 8px;font-size:11px;color:var(--muted);line-height:1.4}
+  /* history list */
+  #historyMenu{min-width:300px}
+  .histrow{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer}
+  .histrow:hover{background:var(--panel2)}
+  .histrow.cur{background:var(--active)}
+  .histrow .ht{flex:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .histrow .hd{font-size:11px;color:var(--muted);white-space:nowrap}
+  .histrow .hx{font-size:11px;color:var(--muted);padding:0 4px;border:0;background:transparent}
+  .histrow .hx:hover{color:var(--err)}
+  /* artifact cards */
+  .artifact{border:1px solid var(--border);border-radius:8px;background:var(--panel2);overflow:hidden}
+  .artifact .ah{display:flex;align-items:center;gap:8px;padding:8px 10px}
+  .artifact .at{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .artifact .alang{font-family:var(--mono);font-size:10px;color:var(--muted);background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:1px 6px} /* taste-skill-ignore: code/ID mono */
+  .artifact .ab{margin:0;max-height:260px;overflow:auto;border-top:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  .artifact .ab pre{margin:0;padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.5} /* taste-skill-ignore: real code */
+  .artifact .mini{font-size:11px;padding:3px 8px;background:transparent}
   .status{font-size:12px;color:var(--muted)}
 
   /* layout */
   main{flex:1;display:flex;min-height:0}
-  .drawer{width:300px;border-right:1px solid var(--border);background:var(--panel);display:none;flex-direction:column;min-height:0} /* taste-skill-ignore: app-screen panel separator */
+  .drawer{position:relative;width:300px;flex:none;border-right:1px solid var(--border);background:var(--panel);display:none;flex-direction:column;min-height:0} /* taste-skill-ignore: app-screen panel separator */
   .drawer.open{display:flex}
-  #codeDrawer{width:46%;border-right:0;border-left:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  #codeDrawer{width:520px;border-right:0;border-left:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  /* drag-to-resize handle on the edge facing the chat */
+  .resizer{position:absolute;top:0;bottom:0;width:7px;cursor:col-resize;z-index:6}
+  .resizer.right{right:-3px} .resizer.left{left:-3px}
+  .resizer:hover,.resizer.drag{background:var(--accent)}
   .drawer h3{margin:0;padding:10px 12px;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
   .tree{overflow:auto;padding:6px 4px;font-family:var(--mono);font-size:12.5px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .node{padding:2px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
@@ -99,6 +132,10 @@
   .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
   @keyframes tb{0%,60%,100%{opacity:.25;transform:translateY(0)} 30%{opacity:1;transform:translateY(-2px)}}
   .tools{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
+  .flow{display:flex;flex-direction:column;gap:10px}
+  .work{margin-top:8px;min-height:16px;font-size:12px;color:var(--muted)}
+  .work:empty{margin-top:0}
+  .bubble.errseg{border-color:var(--err);color:var(--err);white-space:pre-wrap}
   .tool-card{border:1px solid var(--border);border-radius:8px;background:var(--panel2);font-family:var(--mono);font-size:12px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .tool-card .head{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer}
   .tool-card .dot{width:8px;height:8px;border-radius:50%;background:var(--warn)}
@@ -176,6 +213,21 @@
     <div class="focus-menu" id="focusMenu" hidden></div>
   </div>
   <div class="grow"></div>
+  <button id="newChatBtn" type="button" title="Start a new conversation">New</button>
+  <div class="focus" id="history">
+    <button id="historyBtn" type="button" title="Past conversations">History</button>
+    <div class="focus-menu menu1" id="historyMenu" hidden></div>
+  </div>
+  <span id="meter" class="meter" title="Tokens — context size · session total" hidden></span>
+  <div class="focus" id="settings">
+    <button id="settingsBtn" type="button" title="Token budget & response limit">Settings</button>
+    <div class="focus-menu menu1" id="settingsMenu" hidden>
+      <label class="fld">Max response tokens<input id="setMaxTok" type="number" min="256" max="16384" step="256" value="2048"></label>
+      <label class="fld">Context budget (tokens)<input id="setBudget" type="number" min="4000" step="1000" value="128000"></label>
+      <button id="compactBtn" class="menu-btn" type="button">Compact context now</button>
+      <div class="menu-note" id="compactNote">Summarize the conversation to free up the window.</div>
+    </div>
+  </div>
   <button id="cloudBtn" title="Sign in and open one of your cloud projects">Cloud</button>
   <button id="openApk" title="Analyze a local file — a binary (.exe/.elf/Mach-O) or an APK">Open</button>
   <input type="file" id="apkInput" style="display:none">
@@ -184,6 +236,7 @@
   <button id="tCode">Code</button>
   <button id="tBinary" style="display:none">Binary</button>
   <button id="tFindings">Findings<span id="findCount"></span></button>
+  <button id="tArtifacts">Artifacts<span id="artCount"></span></button>
   <button id="tReport">Report</button>
   <button id="tTheme" title="theme">◐</button>
 </header>
@@ -235,6 +288,11 @@
     <div class="findings" id="findings"><div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div></div>
   </aside>
 
+  <aside class="drawer" id="artifactsDrawer">
+    <h3>Artifacts</h3>
+    <div class="findings" id="artifacts"><div class="status" style="padding:10px">No artifacts yet. Ask BINNY to write a decryptor, a PoC, or a YARA rule.</div></div>
+  </aside>
+
   <aside class="drawer" id="reportDrawer">
     <h3>Report
       <span style="float:right;display:flex;gap:6px">
@@ -273,7 +331,13 @@ const state = {
   streaming: false,
   bin: null,          // binary analysis for the panel (null until loaded)
   binView: "functions",
+  artifacts: [],      // {title, language, kind, content}
+  tok: {ctx:0, sess:0}, // context size (last turn) and session total
+  maxTokens: 2048,    // output cap per turn
+  budget: 128000,     // context budget; meter warns as it fills
 };
+let restoring = false;   // true while replaying a saved conversation (suppresses auto-open)
+let EMPTY_HTML = "";     // captured empty-state markup, to reset the transcript
 
 const VULN_CLASSES = ["memory","auth","crypto","injection","path-traversal","deserialization","ssrf","race","secrets"];
 // STIX 2.1 malware-type-ov (curated) — selecting these tells BINNY which malicious
@@ -339,7 +403,74 @@ $("#tExplorer").onclick = ()=>toggle("#explorerDrawer","#tExplorer");
 $("#tCode").onclick     = ()=>toggle("#codeDrawer","#tCode");
 $("#tBinary").onclick   = ()=>{ toggle("#binaryDrawer","#tBinary"); if(!state.bin) loadBinaryPanel(); };
 $("#tFindings").onclick = ()=>toggle("#findingsDrawer","#tFindings");
+$("#tArtifacts").onclick= ()=>toggle("#artifactsDrawer","#tArtifacts");
 $("#tReport").onclick   = ()=>{ $("#report").textContent = buildReport(); toggle("#reportDrawer","#tReport"); };
+
+/* ---- token meter + budget ---- */
+function fmtTok(n){ n=n||0; return n>=1e6 ? (n/1e6).toFixed(1)+"M" : n>=1000 ? (n/1000).toFixed(1)+"k" : ""+n; }
+function updateMeter(){
+  const m=$("#meter"); m.hidden=false;
+  m.innerHTML = 'ctx <b class="ctx">'+fmtTok(state.tok.ctx)+'</b> / '+fmtTok(state.budget)+' · <b>'+fmtTok(state.tok.sess)+'</b> used';
+  const r = state.tok.ctx / (state.budget||1);
+  m.classList.toggle("warn", r>=0.8 && r<1);
+  m.classList.toggle("over", r>=1);
+}
+
+/* ---- artifacts ---- */
+const EXT = {python:"py",py:"py",c:"c",cpp:"cpp","c++":"cpp",go:"go",rust:"rs",javascript:"js",js:"js",typescript:"ts",java:"java",bash:"sh",sh:"sh",shell:"sh",powershell:"ps1",ruby:"rb",php:"php",yara:"yar",sigma:"yml",yaml:"yml",json:"json"};
+let artCount=0;
+function addArtifact(a){
+  if(artCount===0) $("#artifacts").innerHTML="";
+  state.artifacts.push(a); artCount++;
+  $("#tArtifacts").style.display=""; $("#artCount").textContent=" "+artCount;
+  const el=document.createElement("div"); el.className="artifact";
+  const lang=(a.language||"txt");
+  el.innerHTML='<div class="ah"><span class="at"></span><span class="alang"></span><button class="mini" data-act="copy">Copy</button><button class="mini" data-act="dl">Save</button></div><div class="ab"><pre></pre></div>';
+  el.querySelector(".at").textContent = a.title||"artifact";
+  el.querySelector(".alang").textContent = (a.kind?a.kind+" · ":"")+lang;
+  el.querySelector("pre").textContent = a.content||"";
+  el.querySelector('[data-act="copy"]').onclick=()=>navigator.clipboard?.writeText(a.content||"");
+  el.querySelector('[data-act="dl"]').onclick=()=>{
+    const slug=(a.title||"artifact").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)||"artifact";
+    download(slug+"."+(EXT[lang.toLowerCase()]||"txt"), a.content||"");
+  };
+  $("#artifacts").appendChild(el);
+  if(!restoring && !$("#artifactsDrawer").classList.contains("open")) toggle("#artifactsDrawer","#tArtifacts");
+}
+
+/* ---- settings + compact ---- */
+$("#settingsBtn").onclick = e=>{ e.stopPropagation(); const m=$("#settingsMenu"); m.hidden=!m.hidden; };
+document.addEventListener("click", e=>{ if(!$("#settings").contains(e.target)) $("#settingsMenu").hidden=true; });
+$("#setMaxTok").onchange = e=>{ const v=parseInt(e.target.value,10); if(v>0) state.maxTokens=v; };
+$("#setBudget").onchange = e=>{ const v=parseInt(e.target.value,10); if(v>0){ state.budget=v; updateMeter(); } };
+function setCompactNote(t){ $("#compactNote").textContent=t; }
+$("#compactBtn").onclick = compactChat;
+async function compactChat(){
+  if(state.streaming){ setCompactNote("Busy — wait for the current reply."); return; }
+  if(state.messages.length < 2){ setCompactNote("Nothing to compact yet."); return; }
+  if(!state.model){ setCompactNote("Pick a model first."); return; }
+  state.streaming=true; setCompactNote("Compacting…");
+  const body={ baseURL:state.model.baseURL||"", providerId:state.model.providerId||"", model:state.model.model, maxTokens:1024,
+    system:"You are compacting a reverse-engineering conversation to save context. Produce a concise brief preserving: the target, confirmed findings (severity/CWE/file:line), decisions, open questions, key file/function/string references, and any artifacts created. Plain prose, no preamble.",
+    messages:state.messages };
+  let sum="";
+  try{
+    await streamSSE("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}, ev=>{
+      if(ev.type==="chunk") sum+=ev.text;
+      else if(ev.type==="usage"){ state.tok.sess+=(ev.input||0)+(ev.output||0); updateMeter(); }
+    });
+  }catch(e){ setCompactNote("Compact failed: "+e); state.streaming=false; return; }
+  state.streaming=false;
+  sum=sum.trim();
+  if(!sum){ setCompactNote("Compact produced nothing — try again."); return; }
+  const before=state.messages.length;
+  state.messages=[{role:"user", text:"[Earlier conversation — compacted summary]\n"+sum}];
+  state.tok.ctx=0; updateMeter();
+  const b=addMsg("assistant","").querySelector(".bubble"); b.style.display="block";
+  b.innerHTML=renderMarkdown("**Context compacted** — summarized "+before+" messages. The transcript above stays; BINNY now carries this brief forward:\n\n"+sum);
+  setCompactNote("Compacted "+before+" messages."); $("#settingsMenu").hidden=true;
+  saveConvo();
+}
 function toggle(drawer, btn){ $(drawer).classList.toggle("open"); $(btn).classList.toggle("on", $(drawer).classList.contains("open")); }
 $("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
 
@@ -687,7 +818,7 @@ function addFinding(f){
   const host = $("#findings"); const kids=[...host.children];
   const after = kids.find(k=> (+k.dataset.rank) > (+el.dataset.rank));
   host.insertBefore(el, after||null);
-  if(!$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
+  if(!restoring && !$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
 }
 
 /* ---- report (CVE-style VRR, assembled offline from findings) ---- */
@@ -732,7 +863,7 @@ function systemPrompt(){
   const lens = state.mode==="VULN_RESEARCH"
     ? "You are BINNY in VULNERABILITY RESEARCH mode. Hunt for exploitable bugs; for each, give CWE, severity, source→sink reachability, and remediation. Be rigorous; do not invent findings."
     : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior across any target (binary, APK, script, document). Classify using the STIX 2.1 malware vocabulary. Be precise and evidence-based.";
-  let s = lens + " You are a local, offline reverse-engineering assistant. Use your available tools to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note). Format replies in Markdown.";
+  let s = lens + " You are a local, offline reverse-engineering assistant. Use your available tools to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note). When you produce runnable code — a decryptor/unpacker (malware) or a PoC/exploit (vuln), a YARA/Sigma rule, or a helper script — emit it with write_artifact instead of pasting long code into chat. Format replies in Markdown.";
   if(state.mode==="VULN_RESEARCH" && state.focus.size) s += " Scope strictly to these vulnerability classes: "+[...state.focus].join(", ")+".";
   if(state.mode==="MALWARE" && state.focus.size) s += " Prioritize evidence of these STIX 2.1 malware types/behaviors: "+[...state.focus].join(", ")+"; for each, cite the specific strings, API calls, or code that support it.";
   if(state.openFile) s += "\n\nThe analyst is looking at `"+state.openFile.path+"`:\n```\n"+state.openFile.content.slice(0,24000)+"\n```";
@@ -789,12 +920,12 @@ function addMsg(role, text){
   $("#convo").appendChild(m); scroll();
   return m; // caller reaches .bubble / .tools
 }
-function addToolCard(msgEl, name, input){
+function addToolCard(container, name, input){
   const card = document.createElement("div"); card.className="tool-card";
   const arg = input ? JSON.stringify(input).slice(0,120) : "";
   card.innerHTML = `<div class="head"><span class="dot"></span><span class="tname">${esc(name)}</span><span class="targ">${esc(arg)}</span></div><div class="body"></div>`;
   card.querySelector(".head").onclick = ()=>card.classList.toggle("open");
-  msgEl.querySelector(".tools").appendChild(card);
+  container.appendChild(card);
   scroll(); return card;
 }
 function scroll(){ const c=$("#convo"); c.scrollTop=c.scrollHeight; }
@@ -808,22 +939,36 @@ async function send(prefix){
   ta.value=""; autoSize();
   addMsg("user", text);
   state.messages.push({role:"user", text});
-  const msgEl = addMsg("assistant", "");
-  const bubble = msgEl.querySelector(".bubble");
-  bubble.style.display = "block"; bubble.innerHTML = TYPING; scroll(); // show activity at once
-  let pendingCard = null;
+
+  // The assistant turn is an ordered FLOW: text segments and tool cards in the
+  // order they happen, plus a live status line so it never looks frozen.
+  $("#empty")?.remove();
+  const m = document.createElement("div"); m.className="msg assistant";
+  m.innerHTML = '<div class="who">binny</div><div class="flow"></div><div class="work"></div>';
+  $("#convo").appendChild(m);
+  const flow = m.querySelector(".flow"), work = m.querySelector(".work");
+  const setWork = label => { work.innerHTML = label ? '<span class="pstatus"></span> '+TYPING : ""; if(label) work.querySelector(".pstatus").textContent = label; scroll(); };
+  const textSeg = () => { const d=document.createElement("div"); d.className="bubble"; flow.appendChild(d); return d; };
+  let seg=null, segAcc="", fullAcc="", pendingCard=null;
+  setWork("Thinking…");
   state.streaming = true; $("#send").disabled = $("#investigate").disabled = true;
 
   const body = {
     baseURL: state.model.baseURL || "",
     providerId: state.model.providerId || "",
     model: state.model.model,
+    maxTokens: state.maxTokens,
     system: systemPrompt(),
     messages: state.messages,
   };
-  let acc = "";
   try{
     const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!res.ok || !(res.headers.get("content-type")||"").includes("text/event-stream")){
+      let msg = "Request failed ("+res.status+").";
+      try{ const j=await res.json(); if(j && j.error) msg=j.error; }catch{}
+      setWork(null); const e=textSeg(); e.classList.add("errseg"); e.textContent=msg;
+      state.streaming=false; $("#send").disabled=$("#investigate").disabled=false; return;
+    }
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
     for(;;){
       const {value,done} = await reader.read(); if(done) break;
@@ -833,18 +978,22 @@ async function send(prefix){
         const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
         if(!line.startsWith("data:")) continue;
         const ev = JSON.parse(line.slice(5).trim());
-        if(ev.type==="chunk"){ acc += ev.text; bubble.innerHTML = renderMarkdown(acc); scroll(); }
-        else if(ev.type==="tool_call"){ if(!acc) bubble.innerHTML = TYPING; pendingCard = addToolCard(msgEl, ev.name, ev.input); }
-        else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent = ev.preview||""; pendingCard=null; } }
+        if(ev.type==="chunk"){ if(!seg){ seg=textSeg(); segAcc=""; } segAcc+=ev.text; fullAcc+=ev.text; seg.innerHTML=renderMarkdown(segAcc); setWork("Writing…"); }
+        else if(ev.type==="tool_call"){ seg=null; pendingCard=addToolCard(flow, ev.name, ev.input); setWork("Running "+ev.name+"…"); }
+        else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork("Thinking…"); }
         else if(ev.type==="finding"){ addFinding(ev); }
-        else if(ev.type==="error"){ msgEl.className="msg err"; bubble.style.display="block"; bubble.textContent = ev.error; }
-        else if(ev.type==="done"){ /* ev.model, ev.note */ }
+        else if(ev.type==="artifact"){ addArtifact(ev); }
+        else if(ev.type==="usage"){ state.tok.sess += (ev.input||0)+(ev.output||0); if(ev.context) state.tok.ctx = ev.context; updateMeter(); }
+        else if(ev.type==="error"){ seg=null; const e=textSeg(); e.classList.add("errseg"); e.textContent=ev.error; }
+        else if(ev.type==="done"){ if(ev.note){ const n=document.createElement("div"); n.className="work"; n.textContent="Note: "+ev.note; flow.appendChild(n); } }
       }
     }
-    if(acc){ bubble.innerHTML = renderMarkdown(acc); state.messages.push({role:"assistant", text:acc}); }
-    else if(!bubble.querySelector(".tool-card") && bubble.innerHTML===TYPING){ bubble.style.display="none"; } // nothing came back
-  }catch(e){ bubble.parentElement.className="msg err"; bubble.textContent = String(e); }
+    setWork(null);
+    if(fullAcc) state.messages.push({role:"assistant", text:fullAcc});
+    else if(!flow.querySelector(".tool-card") && !flow.querySelector(".errseg")){ const e=textSeg(); e.className="status"; e.textContent="BINNY returned an empty response. Try asking again or rephrasing; if the context is large, use Settings → Compact and retry."; }
+  }catch(e){ setWork(null); const er=textSeg(); er.classList.add("errseg"); er.textContent=String(e); }
   state.streaming=false; $("#send").disabled=$("#investigate").disabled=false;
+  saveConvo(); // persist so the conversation survives a reload
 }
 
 $("#send").onclick = ()=>send();
@@ -858,8 +1007,86 @@ inputEl.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.p
 inputEl.addEventListener("input", autoSize);
 function autoSize(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,180)+"px"; }
 
+/* ---- resizable drawers ---- */
+function setupResizers(){
+  document.querySelectorAll(".drawer").forEach(d=>{
+    const side = d.id==="explorerDrawer" ? "right" : "left"; // explorer is on the left; the rest on the right
+    try{ const w=localStorage.getItem("binny.w."+d.id); if(w) d.style.width=w+"px"; }catch{}
+    const h=document.createElement("div"); h.className="resizer "+side; d.appendChild(h);
+    h.addEventListener("pointerdown", e=>{
+      e.preventDefault(); h.classList.add("drag");
+      const sx=e.clientX, sw=d.offsetWidth;
+      const mv=ev=>{ const dw = side==="right" ? (ev.clientX-sx) : (sx-ev.clientX); d.style.width=Math.max(200, Math.min(window.innerWidth-340, sw+dw))+"px"; };
+      const up=()=>{ h.classList.remove("drag"); document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); try{ localStorage.setItem("binny.w."+d.id, d.offsetWidth); }catch{} };
+      document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
+    });
+  });
+}
+
+/* ---- conversation history (persisted in localStorage) ---- */
+const CONVO_KEY="binny.convos", CUR_KEY="binny.cur", MAX_CONVOS=40;
+let curConvo=null;
+function loadConvos(){ try{ return JSON.parse(localStorage.getItem(CONVO_KEY)||"[]"); }catch{ return []; } }
+function saveConvos(cs){ try{ localStorage.setItem(CONVO_KEY, JSON.stringify(cs.slice(0,MAX_CONVOS))); }catch{} }
+function convoTitle(){ const u=state.messages.find(m=>m.role==="user"); return ((u&&u.text)||"New chat").replace(/\s+/g," ").trim().slice(0,60) || "New chat"; }
+function saveConvo(){
+  if(!state.messages.length && !state.findings.length && !state.artifacts.length) return;
+  if(!curConvo) curConvo="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const cs=loadConvos().filter(c=>c.id!==curConvo);
+  cs.unshift({id:curConvo, title:convoTitle(), ts:Date.now(), mode:state.mode, messages:state.messages, findings:state.findings, artifacts:state.artifacts, tok:state.tok});
+  saveConvos(cs); try{ localStorage.setItem(CUR_KEY,curConvo); }catch{}
+}
+function resetConvoUI(){
+  $("#convo").innerHTML = EMPTY_HTML;
+  $("#findings").innerHTML='<div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div>'; findCount=0; $("#findCount").textContent="";
+  $("#artifacts").innerHTML='<div class="status" style="padding:10px">No artifacts yet. Ask BINNY to write a decryptor, a PoC, or a YARA rule.</div>'; artCount=0; $("#artCount").textContent="";
+  $("#meter").hidden=true;
+}
+function newChat(){
+  saveConvo(); curConvo=null; try{ localStorage.removeItem(CUR_KEY); }catch{}
+  state.messages=[]; state.findings=[]; state.artifacts=[]; state.tok={ctx:0,sess:0};
+  resetConvoUI(); renderHistory();
+}
+function loadConvo(id){
+  saveConvo();
+  const c=loadConvos().find(x=>x.id===id); if(!c) return;
+  curConvo=id; try{ localStorage.setItem(CUR_KEY,id); }catch{}
+  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode;
+  resetConvoUI();
+  [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x.dataset.mode===state.mode)); renderFocus();
+  restoring=true;
+  state.messages.forEach(m=>{ const el=addMsg(m.role==="user"?"user":"assistant",""); const b=el.querySelector(".bubble"); b.style.display="block"; m.role==="user" ? b.textContent=m.text : b.innerHTML=renderMarkdown(m.text); });
+  (c.findings||[]).forEach(addFinding);
+  (c.artifacts||[]).forEach(addArtifact);
+  restoring=false;
+  if(state.tok.sess) updateMeter();
+  renderHistory();
+}
+function relTime(ts){ const s=(Date.now()-ts)/1000; if(s<60)return"just now"; if(s<3600)return Math.floor(s/60)+"m ago"; if(s<86400)return Math.floor(s/3600)+"h ago"; return new Date(ts).toLocaleDateString(); }
+function renderHistory(){
+  const menu=$("#historyMenu"), cs=loadConvos(); menu.innerHTML="";
+  if(!cs.length){ menu.innerHTML='<div class="menu-note">No past conversations yet.</div>'; return; }
+  cs.forEach(c=>{
+    const row=document.createElement("div"); row.className="histrow"+(c.id===curConvo?" cur":"");
+    const t=document.createElement("div"); t.className="ht"; t.textContent=c.title||"Untitled";
+    const d=document.createElement("div"); d.className="hd"; d.textContent=relTime(c.ts);
+    const x=document.createElement("button"); x.className="hx"; x.type="button"; x.textContent="Delete";
+    row.onclick=e=>{ if(e.target===x) return; $("#historyMenu").hidden=true; loadConvo(c.id); };
+    x.onclick=e=>{ e.stopPropagation(); saveConvos(loadConvos().filter(y=>y.id!==c.id)); if(c.id===curConvo) newChat(); else renderHistory(); };
+    row.appendChild(t); row.appendChild(d); row.appendChild(x); menu.appendChild(row);
+  });
+}
+$("#newChatBtn").onclick = newChat;
+$("#historyBtn").onclick = e=>{ e.stopPropagation(); const m=$("#historyMenu"); m.hidden=!m.hidden; if(!m.hidden) renderHistory(); };
+document.addEventListener("click", e=>{ if(!$("#history").contains(e.target)) $("#historyMenu").hidden=true; });
+function restoreLast(){ let cur; try{ cur=localStorage.getItem(CUR_KEY); }catch{} const cs=loadConvos(); const c=cs.find(x=>x.id===cur)||cs[0]; if(c) loadConvo(c.id); }
+window.addEventListener("beforeunload", saveConvo); // don't lose the current chat on close/refresh
+
 /* ---- boot ---- */
+EMPTY_HTML = $("#convo").innerHTML; // capture before any message replaces it
+setupResizers();
 renderFocus(); loadModels(); loadTree(); loadAuth(); loadBinaryPanel();
+restoreLast(); // pick up the last conversation
 </script>
 </body>
 </html>
