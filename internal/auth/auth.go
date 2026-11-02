@@ -1,8 +1,9 @@
-// Package auth reuses the openbin CLI's stored Keycloak credentials for
-// backend authentication. BINNY does not implement its own login flow — it
-// reads (and refreshes) ~/.config/openbin/credentials.json, so `openbin login`
-// is the prerequisite. This mirrors cli/auth.go so both tools stay in sync on
-// token shape + refresh policy.
+// Package auth handles backend (Keycloak) authentication, sharing the openbin
+// CLI's on-disk credentials (~/.config/openbin/credentials.json) so a login in
+// either tool satisfies the other. This file reads + refreshes those tokens;
+// login.go adds the device-authorization browser flow BINNY Desktop uses to log
+// in on its own (the CLI/TUI still rely on `openbin login`). Both mirror
+// cli/auth.go so token shape + refresh policy stay in sync.
 package auth
 
 import (

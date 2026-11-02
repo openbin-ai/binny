@@ -1,0 +1,34 @@
+{
+  "name": "binny-desktop",
+  "productName": "BINNY Desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first reverse-engineering agent. The GUI shell for binny --serve.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:sidecar": "node build-sidecar.js",
+    "pack": "npm run build:sidecar && electron-builder --dir --publish never",
+    "dist": "npm run build:sidecar && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "ai.openbin.binny.desktop",
+    "productName": "BINNY Desktop",
+    "artifactName": "BINNY-Desktop-${version}-${os}-${arch}.${ext}",
+    "files": ["main.js", "preload.js"],
+    "extraResources": [
+      { "from": "bin", "to": "bin" }
+    ],
+    "directories": { "output": "dist" },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg", "zip"]
+    },
+    "win": { "target": ["nsis", "zip"] },
+    "linux": { "target": ["AppImage", "tar.gz"], "category": "Development" }
+  }
+}

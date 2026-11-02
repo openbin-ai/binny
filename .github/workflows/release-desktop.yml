@@ -1,0 +1,82 @@
+name: release-desktop
+
+# Cut a BINNY Desktop release by pushing a tag matching `desktop-v*`
+# (e.g. `desktop-v0.1.0`). Unlike the CLI release (release.yml), the desktop app
+# must be packaged ON each OS so electron-builder can produce that platform's
+# native installer, so this uses a per-OS runner matrix. Each job builds the Go
+# sidecar natively (bundled as a resource — see desktop/build-sidecar.js), runs
+# electron-builder, and attaches the installers to the GitHub release for this
+# tag.
+#
+# Builds are UNSIGNED for now (CSC_IDENTITY_AUTO_DISCOVERY=false on macOS):
+# macOS users right-click → Open the first time, Windows shows SmartScreen.
+# Add signing + notarization later via CSC_LINK/CSC_KEY_PASSWORD (mac) and
+# the win codesign secrets — electron-builder picks them up from the env.
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release as (e.g. desktop-v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: Package ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "binny=${tag#desktop-}" >> "$GITHUB_OUTPUT"   # v0.1.0 → binary --version
+          echo "semver=${tag#desktop-v}" >> "$GITHUB_OUTPUT" # 0.1.0  → electron-builder version
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Package (sidecar + electron-builder)
+        working-directory: desktop
+        env:
+          BINNY_VERSION: ${{ steps.ver.outputs.binny }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned builds for now (macOS)
+        run: |
+          node build-sidecar.js
+          npx electron-builder --publish never -c.extraMetadata.version=${{ steps.ver.outputs.semver }}
+
+      - name: Attach installers to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: BINNY Desktop ${{ steps.ver.outputs.binny }}
+          fail_on_unmatched_files: false
+          files: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
+            desktop/dist/*.tar.gz

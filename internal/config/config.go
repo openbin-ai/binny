@@ -56,6 +56,13 @@ func (e Endpoints) TokenEndpoint() string {
 		strings.TrimRight(e.AuthBase, "/"), e.Realm)
 }
 
+// DeviceAuthEndpoint returns the Keycloak device authorization URL (RFC 8628) —
+// where BINNY Desktop starts the browser login flow, same as `openbin login`.
+func (e Endpoints) DeviceAuthEndpoint() string {
+	return fmt.Sprintf("%s/realms/%s/protocol/openid-connect/auth/device",
+		strings.TrimRight(e.AuthBase, "/"), e.Realm)
+}
+
 // CredentialsPath returns ~/.config/openbin/credentials.json — the SAME file
 // the openbin CLI writes, honoring XDG_CONFIG_HOME. BINNY reads (and refreshes)
 // it but is not responsible for creating it; `openbin login` does that.

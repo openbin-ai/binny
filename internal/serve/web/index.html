@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BINNY Desktop</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  /* BINNY palette — amber on zinc (openbin.ai brand) */
+  :root{
+    --bg:#0b0d12; --panel:#15161c; --panel2:#1e2027; --border:#27272a;
+    --fg:#e6e8eb; --muted:#a1a1aa;
+    --accent:#fbbf24; --accent-h:#fcd34d; --on-accent:#1a1205;  /* amber-400/300, near-black ink */
+    --active:#26282f;                                            /* neutral selected pill (brightness, not hue) */
+    --ok:#34d399; --err:#ef4444; --warn:#fbbf24;
+    --chip-bg:#2b2410; --chip-ink:#fbbf24; --chip-bd:#4a3c14;    /* pale-amber data pill */
+    --user:#1b1c22; --radius:8px;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f7f9; --panel:#ffffff; --panel2:#eef1f5; --border:#e4e4e7;
+    --fg:#18181b; --muted:#71717a;
+    --accent:#f59e0b; --accent-h:#d97706; --active:#e4e4e7;
+    --chip-bg:#fef3c7; --chip-ink:#92400e; --chip-bd:#fcd34d;
+    --user:#eef1f5;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font-family:var(--sans);display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+
+  /* top bar */
+  header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap} /* taste-skill-ignore: app-screen panel separator */
+  .logo{display:flex;align-items:center;gap:9px}
+  .logo .mark{height:28px;width:28px;background:#0b0d12;border-radius:7px;padding:3px}
+  .logo .wm{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg)} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .logo .wm .sfx{color:var(--accent)}
+  .grow{flex:1}
+  select,button,.chip{font-family:var(--sans);font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;cursor:pointer;transition:border-color .12s,background .12s,color .12s}
+  button:hover,.chip:hover{border-color:var(--accent)}
+  /* active chrome is neutral (brightness), not accent — the amber is reserved for data + the one primary action */
+  button.on{background:var(--active);color:var(--fg);border-color:var(--active);font-weight:600}
+  .seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:var(--panel2)}
+  .seg button.on{background:var(--active);color:var(--fg)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip.on{background:var(--chip-bg);color:var(--chip-ink);border-color:var(--chip-bd)}
+  /* focus dropdown (multi-select) — keeps the navbar to one line */
+  .focus{position:relative}
+  #focusBtn.on{background:var(--chip-bg);color:var(--chip-ink);border-color:var(--chip-bd)}
+  .focus-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:40;min-width:260px;max-height:320px;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 12px 30px rgba(0,0,0,.4);display:grid;grid-template-columns:1fr 1fr;gap:1px} /* popover floats — shadow allowed taste-skill-ignore */
+  .focus-menu[hidden]{display:none}
+  .focus-menu label{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+  .focus-menu label:hover{background:var(--panel2)}
+  .focus-menu input[type=checkbox]{accent-color:var(--accent);margin:0}
+  /* token meter */
+  .meter{font-size:12px;color:var(--muted);white-space:nowrap}
+  .meter b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+  .meter.warn b.ctx{color:var(--accent)} .meter.over b.ctx{color:var(--err)}
+  /* settings dropdown (single column with fields) */
+  .focus-menu.menu1{grid-template-columns:1fr;min-width:250px;gap:2px}
+  .fld{display:flex;flex-direction:column;gap:5px;padding:7px 8px;font-size:12px;color:var(--muted)}
+  .fld input{font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-variant-numeric:tabular-nums}
+  .fld input:focus{outline:none;border-color:var(--accent)}
+  .menu-btn{margin:6px 8px 2px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:13px;color:var(--fg);cursor:pointer}
+  .menu-btn:hover{border-color:var(--accent)}
+  .menu-note{padding:4px 9px 8px;font-size:11px;color:var(--muted);line-height:1.4}
+  /* history list */
+  #historyMenu{min-width:300px}
+  .histrow{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer}
+  .histrow:hover{background:var(--panel2)}
+  .histrow.cur{background:var(--active)}
+  .histrow .ht{flex:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .histrow .hd{font-size:11px;color:var(--muted);white-space:nowrap}
+  .histrow .hx{font-size:11px;color:var(--muted);padding:0 4px;border:0;background:transparent}
+  .histrow .hx:hover{color:var(--err)}
+  /* artifact cards */
+  .artifact{border:1px solid var(--border);border-radius:8px;background:var(--panel2);overflow:hidden}
+  .artifact .ah{display:flex;align-items:center;gap:8px;padding:8px 10px}
+  .artifact .at{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .artifact .alang{font-family:var(--mono);font-size:10px;color:var(--muted);background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:1px 6px} /* taste-skill-ignore: code/ID mono */
+  .artifact .ab{margin:0;max-height:260px;overflow:auto;border-top:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  .artifact .ab pre{margin:0;padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.5} /* taste-skill-ignore: real code */
+  .artifact .mini{font-size:11px;padding:3px 8px;background:transparent}
+  .status{font-size:12px;color:var(--muted)}
+
+  /* layout */
+  main{flex:1;display:flex;min-height:0}
+  .drawer{position:relative;width:300px;flex:none;border-right:1px solid var(--border);background:var(--panel);display:none;flex-direction:column;min-height:0} /* taste-skill-ignore: app-screen panel separator */
+  .drawer.open{display:flex}
+  #codeDrawer{width:520px;border-right:0;border-left:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  /* drag-to-resize handle on the edge facing the chat */
+  .resizer{position:absolute;top:0;bottom:0;width:7px;cursor:col-resize;z-index:6}
+  .resizer.right{right:-3px} .resizer.left{left:-3px}
+  .resizer:hover,.resizer.drag{background:var(--accent)}
+  .drawer h3{margin:0;padding:10px 12px;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  .tree{overflow:auto;padding:6px 4px;font-family:var(--mono);font-size:12.5px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .node{padding:2px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
+  .node:hover{background:var(--panel2)}
+  .node.file{color:var(--fg)}
+  .node.dir{color:var(--muted)}
+  .node.sel{background:var(--accent);color:#fff}
+  .kids{margin-left:12px}
+
+  .codewrap{overflow:auto;flex:1;min-height:0}
+  pre.code{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.5} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  pre.code .ln{display:inline-block;width:46px;text-align:right;padding-right:12px;margin-right:12px;color:var(--muted);border-right:1px solid var(--border);user-select:none} /* taste-skill-ignore: app-screen panel separator */
+  pre.code .tok-c{color:var(--muted)}  /* comment */
+  pre.code .tok-s{color:#fbbf24}       /* string / data — amber (brand code-ref) */
+  pre.code .tok-k{color:#c084fc}       /* keyword / function — purple (brand code-ref data) taste-skill-ignore */
+
+  /* conversation */
+  #chat{flex:1;display:flex;flex-direction:column;min-width:0}
+  .convo{flex:1;overflow:auto;padding:24px 20px}
+  .inner{max-width:760px;margin:0 auto;padding:0 20px}
+  .msg{max-width:760px;margin:0 auto 18px}   /* centered column with gutters — not glued to the edge */
+  .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+  .bubble{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;word-wrap:break-word;overflow-wrap:anywhere;line-height:1.6}
+  .msg.user .bubble{background:var(--user);white-space:pre-wrap}
+  .msg.err .bubble{border-color:var(--err);color:var(--err);white-space:pre-wrap}
+  /* rendered markdown inside assistant bubbles */
+  .bubble p{margin:0 0 10px} .bubble > :last-child{margin-bottom:0}
+  .bubble ul,.bubble ol{margin:0 0 10px;padding-left:22px} .bubble li{margin:3px 0}
+  .bubble h1,.bubble h2,.bubble h3,.bubble h4{margin:14px 0 6px;font-size:15px;font-weight:600;line-height:1.3}
+  .bubble code{font-family:var(--mono);font-size:12.5px;background:var(--panel2);border-radius:4px;padding:1px 5px} /* taste-skill-ignore: inline code */
+  .bubble pre{background:var(--panel2);border-radius:8px;padding:11px 13px;overflow:auto;margin:0 0 10px}
+  .bubble pre code{background:none;padding:0}
+  .bubble a{color:var(--accent);text-underline-offset:2px}
+  .bubble strong{font-weight:700} .bubble em{font-style:italic}
+  .typing{display:inline-flex;gap:5px;align-items:center;padding:2px 0}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:tb 1s infinite}
+  .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
+  @keyframes tb{0%,60%,100%{opacity:.25;transform:translateY(0)} 30%{opacity:1;transform:translateY(-2px)}}
+  .tools{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
+  .flow{display:flex;flex-direction:column;gap:10px}
+  .work{margin-top:8px;min-height:16px;font-size:12px;color:var(--muted)}
+  .work:empty{margin-top:0}
+  .bubble.errseg{border-color:var(--err);color:var(--err);white-space:pre-wrap}
+  .tool-card{border:1px solid var(--border);border-radius:8px;background:var(--panel2);font-family:var(--mono);font-size:12px} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .tool-card .head{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer}
+  .tool-card .dot{width:8px;height:8px;border-radius:50%;background:var(--warn)}
+  .tool-card.ok .dot{background:var(--ok)} .tool-card.fail .dot{background:var(--err)}
+  .tool-card .tname{color:var(--accent)} .tool-card .targ{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .tool-card .body{display:none;padding:0 10px 9px;white-space:pre-wrap;color:var(--muted);max-height:220px;overflow:auto}
+  .tool-card.open .body{display:block}
+  .findings{overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+  .finding{border:1px solid var(--border);border-left-width:4px;border-radius:8px;background:var(--panel2);padding:9px 11px}
+  .finding .ft{font-weight:600;font-size:13px}
+  .finding .fm{font-size:11px;color:var(--muted);margin:3px 0;font-family:var(--mono)} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .finding .fn{font-size:12.5px;line-height:1.5}
+  .sev{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:4px;color:#07120e}
+  .sev-critical{background:#ff5c7a;color:#fff} .sev-high{background:#ff8a5c;color:#fff}
+  .sev-medium{background:var(--warn)} .sev-low{background:#38bdf8} .sev-info{background:#7f8da3;color:#fff}
+  .finding.s-critical{border-left-color:#ff5c7a} .finding.s-high{border-left-color:#ff8a5c}
+  .finding.s-medium{border-left-color:var(--warn)} .finding.s-low{border-left-color:#38bdf8} .finding.s-info{border-left-color:#7f8da3}
+  #findCount{margin-left:5px;font-size:11px;color:var(--muted)}
+  .empty{color:var(--muted);text-align:center;margin-top:11vh;padding:0 20px}
+  .empty .hero-mark{width:56px;height:56px;opacity:.95;margin-bottom:14px}
+  .empty h1{font-weight:600;font-size:24px;letter-spacing:-.01em;margin:.2em 0;color:var(--fg)}
+  .empty .pitch{font-size:14px;line-height:1.55;max-width:460px;margin:10px auto}
+  .empty .pitch.amber{color:var(--accent);font-size:13px;margin-top:14px}
+
+  .composer{border-top:1px solid var(--border);background:var(--panel);padding:12px} /* taste-skill-ignore: app-screen panel separator */
+  .composer .inner{display:flex;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;min-height:44px;max-height:180px;background:var(--panel2);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-family:var(--sans);font-size:14px}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  .send{background:var(--accent);color:var(--on-accent);border-color:var(--accent);padding:11px 16px;font-weight:600}
+  .send:hover{background:var(--accent-h);border-color:var(--accent-h)}
+  /* Investigate is the secondary action — a neutral outline, so only Send carries the accent */
+  .send.ghost{background:transparent;color:var(--fg);border-color:var(--border)}
+  .send.ghost:hover{border-color:var(--accent);background:transparent}
+  .ctxbar{max-width:760px;margin:0 auto 8px;padding:0 20px;font-size:12px;color:var(--muted)}
+  .ctxbar b{color:var(--accent)}
+
+  /* cloud modal (connected mode) */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;z-index:50}
+  .overlay.open{display:flex}
+  .modal{margin-top:8vh;width:580px;max-width:92vw;max-height:80vh;background:var(--panel);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)} /* dialog floats — shadow allowed taste-skill-ignore */
+  .modal .mhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
+  .modal .mhead b{font-size:14px}
+  .modal .mbody{padding:14px 16px;overflow:auto}
+  .acct{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .plist{display:flex;flex-direction:column;gap:6px}
+  .prow{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer}
+  .prow:hover{border-color:var(--accent)}
+  .prow.disabled{opacity:.45;cursor:not-allowed}
+  .prow .pn{flex:1;min-width:0}
+  .prow .kindtag{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:2px 5px;min-width:38px;text-align:center} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .prow .pn .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prow .pn .s{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{font-size:10px;padding:2px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--border);color:var(--muted)}
+  .code-box{font-family:var(--mono);font-size:22px;letter-spacing:3px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center;margin:12px 0} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .mbtn{background:var(--accent);color:#fff;border-color:var(--accent);padding:10px 16px;margin-top:4px}
+  a.link{color:var(--accent)}
+  input{font-family:var(--sans);font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
+  input:focus{outline:none;border-color:var(--accent)}
+  #binList .row{padding:4px 8px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  #binList .row:hover{background:var(--panel2)}
+  #binList .row .addr{color:var(--muted);margin-right:8px}
+  #binList .row.ext{color:var(--muted)}
+  #binList .str{padding:3px 8px;font-family:var(--mono);font-size:12px;color:#fbbf24;white-space:pre-wrap;word-break:break-all} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><img class="mark" src="binny-mark.png" alt="BINNY"><span class="wm">BINNY<span class="sfx">·Desktop</span></span></div>
+  <div class="seg" id="modeSeg">
+    <button data-mode="MALWARE" class="on">Malware</button>
+    <button data-mode="VULN_RESEARCH">Vuln</button>
+  </div>
+  <div class="focus" id="focus">
+    <button id="focusBtn" type="button" title="Scope the analysis so BINNY knows where to look">Focus</button>
+    <div class="focus-menu" id="focusMenu" hidden></div>
+  </div>
+  <div class="grow"></div>
+  <button id="newChatBtn" type="button" title="Start a new conversation">New</button>
+  <div class="focus" id="history">
+    <button id="historyBtn" type="button" title="Past conversations">History</button>
+    <div class="focus-menu menu1" id="historyMenu" hidden></div>
+  </div>
+  <span id="meter" class="meter" title="Tokens — context size · session total" hidden></span>
+  <div class="focus" id="settings">
+    <button id="settingsBtn" type="button" title="Token budget & response limit">Settings</button>
+    <div class="focus-menu menu1" id="settingsMenu" hidden>
+      <label class="fld">Max response tokens<input id="setMaxTok" type="number" min="256" max="16384" step="256" value="2048"></label>
+      <label class="fld">Context budget (tokens)<input id="setBudget" type="number" min="4000" step="1000" value="128000"></label>
+      <button id="compactBtn" class="menu-btn" type="button">Compact context now</button>
+      <div class="menu-note" id="compactNote">Summarize the conversation to free up the window.</div>
+    </div>
+  </div>
+  <button id="cloudBtn" title="Sign in and open one of your cloud projects">Cloud</button>
+  <button id="openApk" title="Analyze a local file — a binary (.exe/.elf/Mach-O) or an APK">Open</button>
+  <input type="file" id="apkInput" style="display:none">
+  <select id="modelPick" title="model"></select>
+  <button id="tExplorer">Explorer</button>
+  <button id="tCode">Code</button>
+  <button id="tBinary" style="display:none">Binary</button>
+  <button id="tFindings">Findings<span id="findCount"></span></button>
+  <button id="tArtifacts">Artifacts<span id="artCount"></span></button>
+  <button id="tReport">Report</button>
+  <button id="tTheme" title="theme">◐</button>
+</header>
+
+<main>
+  <aside class="drawer" id="explorerDrawer">
+    <h3>Explorer</h3>
+    <div class="tree" id="tree"><div class="status" style="padding:10px">no tree — start binny --serve --serve-dir &lt;decompiled folder&gt;</div></div>
+  </aside>
+
+  <section id="chat">
+    <div class="convo" id="convo">
+      <div class="empty" id="empty">
+        <img class="hero-mark" src="binny-mark.png" alt="">
+        <h1>Point BINNY at the target</h1>
+        <p class="pitch">A local-first reverse-engineering agent for binaries, APKs, and scripts. Pick a model, then drop a file to analyze it here, or open one of your cloud projects. Open a file and ask, or hit Investigate.</p>
+        <p class="pitch amber">Your malware never leaves your machine.</p>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="ctxbar" id="ctxbar" style="display:none"></div>
+      <div class="inner">
+        <textarea id="input" placeholder="Ask BINNY about this target…  (Enter to send, Shift+Enter for newline)"></textarea>
+        <button class="send ghost" id="investigate" title="Turn the agent loose on the tree (lists, searches, reads, reports)">Investigate</button>
+        <button class="send" id="send">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="drawer" id="codeDrawer">
+    <h3 id="codeTitle">Code</h3>
+    <div class="codewrap"><pre class="code" id="code"></pre></div>
+  </aside>
+
+  <aside class="drawer" id="binaryDrawer">
+    <h3>Binary</h3>
+    <div id="binMeta" class="status" style="padding:8px 12px"></div>
+    <div class="seg" id="binSeg" style="margin:0 12px 8px">
+      <button data-view="functions" class="on">Functions</button>
+      <button data-view="strings">Strings</button>
+      <button data-view="imports">Imports</button>
+    </div>
+    <input id="binFilter" placeholder="filter…" style="margin:0 12px 8px;width:calc(100% - 24px)">
+    <div class="tree" id="binList" style="flex:1"></div>
+  </aside>
+
+  <aside class="drawer" id="findingsDrawer">
+    <h3>Findings</h3>
+    <div class="findings" id="findings"><div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div></div>
+  </aside>
+
+  <aside class="drawer" id="artifactsDrawer">
+    <h3>Artifacts</h3>
+    <div class="findings" id="artifacts"><div class="status" style="padding:10px">No artifacts yet. Ask BINNY to write a decryptor, a PoC, or a YARA rule.</div></div>
+  </aside>
+
+  <aside class="drawer" id="reportDrawer">
+    <h3>Report
+      <span style="float:right;display:flex;gap:6px">
+        <button id="copyReport" style="padding:2px 8px;font-size:11px">Copy</button>
+        <button id="dlReport" style="padding:2px 8px;font-size:11px">Download .md</button>
+      </span>
+    </h3>
+    <div class="codewrap"><pre class="code" id="report" style="padding:12px;white-space:pre-wrap"></pre></div>
+  </aside>
+</main>
+
+<div class="overlay" id="cloudModal">
+  <div class="modal">
+    <div class="mhead">
+      <b>Cloud projects</b>
+      <span class="acct" id="acctLine"></span>
+      <div class="grow"></div>
+      <button id="signOut" style="display:none">Sign out</button>
+      <button id="cloudClose" title="Close">Close</button>
+    </div>
+    <div class="mbody" id="cloudBody"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = p => fetch(p).then(r => r.json());
+
+const state = {
+  mode: "MALWARE",
+  focus: new Set(),
+  model: null,        // {label, baseURL?, providerId?, model}
+  openFile: null,     // {path, content}
+  messages: [],       // {role, text}
+  findings: [],       // {title, severity, cwe, file, line, reachability, note}
+  streaming: false,
+  bin: null,          // binary analysis for the panel (null until loaded)
+  binView: "functions",
+  artifacts: [],      // {title, language, kind, content}
+  tok: {ctx:0, sess:0}, // context size (last turn) and session total
+  maxTokens: 2048,    // output cap per turn
+  budget: 128000,     // context budget; meter warns as it fills
+};
+let restoring = false;   // true while replaying a saved conversation (suppresses auto-open)
+let EMPTY_HTML = "";     // captured empty-state markup, to reset the transcript
+
+const VULN_CLASSES = ["memory","auth","crypto","injection","path-traversal","deserialization","ssrf","race","secrets"];
+// STIX 2.1 malware-type-ov (curated) — selecting these tells BINNY which malicious
+// behaviors to prioritize, so it doesn't waste tokens looking everywhere.
+const MALWARE_CLASSES = ["backdoor","rat","trojan","ransomware","spyware","keylogger","rootkit","bootkit","dropper","downloader","bot","worm","wiper","webshell","adware","ddos","exploit-kit"];
+function chipClasses(){ return state.mode==="VULN_RESEARCH" ? VULN_CLASSES : MALWARE_CLASSES; }
+function renderFocus(){
+  const menu = $("#focusMenu"); menu.innerHTML = ""; state.focus = new Set();
+  chipClasses().forEach(k=>{
+    const lab = document.createElement("label");
+    const cb = document.createElement("input"); cb.type="checkbox"; cb.value=k;
+    cb.onchange = ()=>{ cb.checked ? state.focus.add(k) : state.focus.delete(k); updateFocusBtn(); };
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(k));
+    menu.appendChild(lab);
+  });
+  updateFocusBtn();
+}
+function updateFocusBtn(){
+  const n = state.focus.size, b = $("#focusBtn");
+  b.textContent = n ? `Focus · ${n}` : "Focus";
+  b.classList.toggle("on", n>0);
+}
+$("#focusBtn").onclick = e=>{ e.stopPropagation(); const m=$("#focusMenu"); m.hidden = !m.hidden; };
+document.addEventListener("click", e=>{ if(!$("#focus").contains(e.target)) $("#focusMenu").hidden = true; });
+
+/* ---- model picker ---- */
+async function loadModels(){
+  const pick = $("#modelPick");
+  pick.innerHTML = "";
+  const opts = [];
+  try {
+    const {runtimes} = await api("/api/local-models");
+    for(const rt of (runtimes||[])) for(const m of rt.models)
+      opts.push({label:`${rt.name}: ${m}`, baseURL:rt.baseURL, model:m});
+  } catch {}
+  try {
+    const {providers} = await api("/api/config");
+    for(const p of (providers||[])) if(p.ready) for(const m of (p.models||[]))
+      opts.push({label:`${p.id}: ${m}`, providerId:p.id, model:m});
+  } catch {}
+  if(!opts.length){
+    const o = document.createElement("option");
+    o.textContent = "no models — run Ollama/LM Studio or configure a key"; o.disabled = true;
+    pick.appendChild(o); state.model = null; return;
+  }
+  opts.forEach((o,i)=>{
+    const el = document.createElement("option"); el.value = i; el.textContent = o.label; pick.appendChild(el);
+  });
+  pick._opts = opts; state.model = opts[0];
+  pick.onchange = () => state.model = pick._opts[pick.value|0];
+}
+
+/* ---- mode + focus ---- */
+$("#modeSeg").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b || b.dataset.mode===state.mode) return;
+  state.mode = b.dataset.mode;
+  [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x===b));
+  renderFocus(); // rebuild the focus dropdown for the mode
+});
+
+/* ---- drawers ---- */
+$("#tExplorer").onclick = ()=>toggle("#explorerDrawer","#tExplorer");
+$("#tCode").onclick     = ()=>toggle("#codeDrawer","#tCode");
+$("#tBinary").onclick   = ()=>{ toggle("#binaryDrawer","#tBinary"); if(!state.bin) loadBinaryPanel(); };
+$("#tFindings").onclick = ()=>toggle("#findingsDrawer","#tFindings");
+$("#tArtifacts").onclick= ()=>toggle("#artifactsDrawer","#tArtifacts");
+$("#tReport").onclick   = ()=>{ $("#report").textContent = buildReport(); toggle("#reportDrawer","#tReport"); };
+
+/* ---- token meter + budget ---- */
+function fmtTok(n){ n=n||0; return n>=1e6 ? (n/1e6).toFixed(1)+"M" : n>=1000 ? (n/1000).toFixed(1)+"k" : ""+n; }
+function updateMeter(){
+  const m=$("#meter"); m.hidden=false;
+  m.innerHTML = 'ctx <b class="ctx">'+fmtTok(state.tok.ctx)+'</b> / '+fmtTok(state.budget)+' · <b>'+fmtTok(state.tok.sess)+'</b> used';
+  const r = state.tok.ctx / (state.budget||1);
+  m.classList.toggle("warn", r>=0.8 && r<1);
+  m.classList.toggle("over", r>=1);
+}
+
+/* ---- artifacts ---- */
+const EXT = {python:"py",py:"py",c:"c",cpp:"cpp","c++":"cpp",go:"go",rust:"rs",javascript:"js",js:"js",typescript:"ts",java:"java",bash:"sh",sh:"sh",shell:"sh",powershell:"ps1",ruby:"rb",php:"php",yara:"yar",sigma:"yml",yaml:"yml",json:"json"};
+let artCount=0;
+function addArtifact(a){
+  if(artCount===0) $("#artifacts").innerHTML="";
+  state.artifacts.push(a); artCount++;
+  $("#tArtifacts").style.display=""; $("#artCount").textContent=" "+artCount;
+  const el=document.createElement("div"); el.className="artifact";
+  const lang=(a.language||"txt");
+  el.innerHTML='<div class="ah"><span class="at"></span><span class="alang"></span><button class="mini" data-act="copy">Copy</button><button class="mini" data-act="dl">Save</button></div><div class="ab"><pre></pre></div>';
+  el.querySelector(".at").textContent = a.title||"artifact";
+  el.querySelector(".alang").textContent = (a.kind?a.kind+" · ":"")+lang;
+  el.querySelector("pre").textContent = a.content||"";
+  el.querySelector('[data-act="copy"]').onclick=()=>navigator.clipboard?.writeText(a.content||"");
+  el.querySelector('[data-act="dl"]').onclick=()=>{
+    const slug=(a.title||"artifact").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)||"artifact";
+    download(slug+"."+(EXT[lang.toLowerCase()]||"txt"), a.content||"");
+  };
+  $("#artifacts").appendChild(el);
+  if(!restoring && !$("#artifactsDrawer").classList.contains("open")) toggle("#artifactsDrawer","#tArtifacts");
+}
+
+/* ---- settings + compact ---- */
+$("#settingsBtn").onclick = e=>{ e.stopPropagation(); const m=$("#settingsMenu"); m.hidden=!m.hidden; };
+document.addEventListener("click", e=>{ if(!$("#settings").contains(e.target)) $("#settingsMenu").hidden=true; });
+$("#setMaxTok").onchange = e=>{ const v=parseInt(e.target.value,10); if(v>0) state.maxTokens=v; };
+$("#setBudget").onchange = e=>{ const v=parseInt(e.target.value,10); if(v>0){ state.budget=v; updateMeter(); } };
+function setCompactNote(t){ $("#compactNote").textContent=t; }
+$("#compactBtn").onclick = compactChat;
+async function compactChat(){
+  if(state.streaming){ setCompactNote("Busy — wait for the current reply."); return; }
+  if(state.messages.length < 2){ setCompactNote("Nothing to compact yet."); return; }
+  if(!state.model){ setCompactNote("Pick a model first."); return; }
+  state.streaming=true; setCompactNote("Compacting…");
+  const body={ baseURL:state.model.baseURL||"", providerId:state.model.providerId||"", model:state.model.model, maxTokens:1024,
+    system:"You are compacting a reverse-engineering conversation to save context. Produce a concise brief preserving: the target, confirmed findings (severity/CWE/file:line), decisions, open questions, key file/function/string references, and any artifacts created. Plain prose, no preamble.",
+    messages:state.messages };
+  let sum="";
+  try{
+    await streamSSE("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}, ev=>{
+      if(ev.type==="chunk") sum+=ev.text;
+      else if(ev.type==="usage"){ state.tok.sess+=(ev.input||0)+(ev.output||0); updateMeter(); }
+    });
+  }catch(e){ setCompactNote("Compact failed: "+e); state.streaming=false; return; }
+  state.streaming=false;
+  sum=sum.trim();
+  if(!sum){ setCompactNote("Compact produced nothing — try again."); return; }
+  const before=state.messages.length;
+  state.messages=[{role:"user", text:"[Earlier conversation — compacted summary]\n"+sum}];
+  state.tok.ctx=0; updateMeter();
+  const b=addMsg("assistant","").querySelector(".bubble"); b.style.display="block";
+  b.innerHTML=renderMarkdown("**Context compacted** — summarized "+before+" messages. The transcript above stays; BINNY now carries this brief forward:\n\n"+sum);
+  setCompactNote("Compacted "+before+" messages."); $("#settingsMenu").hidden=true;
+  saveConvo();
+}
+function toggle(drawer, btn){ $(drawer).classList.toggle("open"); $(btn).classList.toggle("on", $(drawer).classList.contains("open")); }
+$("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
+
+/* ---- file tree ---- */
+async function loadTree(){
+  const {root} = await api("/api/files");
+  const host = $("#tree");
+  if(!root){ return; }
+  host.innerHTML = "";
+  host.appendChild(renderNode(root, true));
+}
+function setTreeNote(text){
+  const host = $("#tree"); host.innerHTML = "";
+  const d = document.createElement("div"); d.className="status"; d.style.padding="10px"; d.textContent = text;
+  host.appendChild(d);
+}
+function renderNode(node, open){
+  const wrap = document.createElement("div");
+  const row = document.createElement("div");
+  row.className = "node " + node.type;
+  row.textContent = (node.type==="dir" ? (open?"▾ ":"▸ ") : "") + node.name;
+  wrap.appendChild(row);
+  if(node.type==="dir"){
+    const kids = document.createElement("div"); kids.className="kids"; kids.style.display = open?"block":"none";
+    (node.children||[]).forEach(c=>kids.appendChild(renderNode(c,false)));
+    wrap.appendChild(kids);
+    row.onclick = ()=>{ const vis = kids.style.display==="block"; kids.style.display = vis?"none":"block"; row.textContent=(vis?"▸ ":"▾ ")+node.name; };
+  } else {
+    row.onclick = ()=>openFile(node.path, row);
+  }
+  return wrap;
+}
+async function openFile(path, row){
+  document.querySelectorAll(".node.sel").forEach(n=>n.classList.remove("sel"));
+  if(row) row.classList.add("sel");
+  const data = await api("/api/file?path="+encodeURIComponent(path));
+  if(data.error){ return; }
+  state.openFile = {path, content:data.content};
+  $("#codeTitle").textContent = path + (data.truncated?"  (truncated)":"");
+  $("#code").innerHTML = renderCode(data.content);
+  if(!$("#codeDrawer").classList.contains("open")) toggle("#codeDrawer","#tCode");
+  updateCtx();
+}
+function updateCtx(){
+  const bar = $("#ctxbar");
+  if(state.openFile){ bar.style.display="block"; bar.innerHTML = "context: <b>"+esc(state.openFile.path)+"</b> &nbsp;·&nbsp; <a href='#' id='clearCtx' style='color:var(--muted)'>clear</a>";
+    $("#clearCtx").onclick = e=>{e.preventDefault(); state.openFile=null; bar.style.display="none";};
+  } else bar.style.display="none";
+}
+
+/* ---- minimal syntax highlight (offline, regex-based) ---- */
+const KW = /\b(abstract|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|function|if|implements|import|instanceof|int|interface|let|long|native|new|null|package|private|protected|public|return|short|static|super|switch|synchronized|this|throw|throws|try|var|void|while)\b/g;
+function renderCode(src){
+  const lines = src.split("\n");
+  return lines.map((ln,i)=>{
+    let h = esc(ln)
+      .replace(/(\/\/.*$)/g, '<span class="tok-c">$1</span>')
+      .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;)/g, '<span class="tok-s">$1</span>')
+      .replace(KW, '<span class="tok-k">$&</span>');
+    return `<span class="ln">${i+1}</span>${h}`;
+  }).join("\n");
+}
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+/* ---- binary panel (functions / strings / imports + decompiled C) ---- */
+function clearBinaryPanel(){
+  state.bin = null; $("#binList").innerHTML = ""; $("#binMeta").textContent = "";
+  $("#tBinary").style.display = "none";
+  $("#binaryDrawer").classList.remove("open"); $("#tBinary").classList.remove("on");
+}
+async function loadBinaryPanel(){
+  let data;
+  try{ data = await api("/api/bin/analysis"); }catch{ return; }
+  if(!data || !data.binary){ $("#tBinary").style.display="none"; state.bin=null; return; }
+  state.bin = data;
+  $("#tBinary").style.display = "";
+  const m = data.metadata || {};
+  $("#binMeta").textContent =
+    `${m.executable_format||"?"} · ${m.language||"?"} · ${data.functionsTotal} funcs · ${data.stringsTotal} strings · ${(data.imports||[]).length} imports`;
+  renderBinList();
+  if(!$("#binaryDrawer").classList.contains("open")) toggle("#binaryDrawer","#tBinary");
+}
+$("#binSeg").addEventListener("click", e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  state.binView=b.dataset.view;
+  [...$("#binSeg").children].forEach(x=>x.classList.toggle("on", x===b));
+  renderBinList();
+});
+$("#binFilter").addEventListener("input", renderBinList);
+function renderBinList(){
+  const host=$("#binList"); host.innerHTML="";
+  if(!state.bin) return;
+  const q=$("#binFilter").value.trim().toLowerCase();
+  if(state.binView==="functions"){
+    let fns=state.bin.functions||[];
+    if(q) fns=fns.filter(f=>f.name.toLowerCase().includes(q));
+    fns.slice(0,3000).forEach(f=>{
+      const row=document.createElement("div"); row.className="row"+(f.external||f.thunk?" ext":"");
+      row.innerHTML=`<span class="addr">${esc(f.address||"")}</span>${esc(f.name)}`;
+      row.title=f.signature||f.name;
+      if(f.hasCode) row.onclick=()=>openFunction(f.name);
+      else { row.style.cursor="default"; row.title="external/thunk — no decompiled body"; }
+      host.appendChild(row);
+    });
+    if(!fns.length) host.innerHTML='<div class="status" style="padding:10px">no functions'+(q?" matching "+esc(q):"")+'</div>';
+  } else if(state.binView==="strings"){
+    let ss=state.bin.strings||[];
+    if(q) ss=ss.filter(s=>s.toLowerCase().includes(q));
+    ss.slice(0,3000).forEach(s=>{ const d=document.createElement("div"); d.className="str"; d.textContent=s; host.appendChild(d); });
+    if(!ss.length) host.innerHTML='<div class="status" style="padding:10px">no strings'+(q?" matching "+esc(q):"")+'</div>';
+  } else {
+    let im=state.bin.imports||[];
+    if(q) im=im.filter(s=>s.toLowerCase().includes(q));
+    im.forEach(s=>{ const d=document.createElement("div"); d.className="row"; d.textContent=s; host.appendChild(d); });
+    if(!im.length) host.innerHTML='<div class="status" style="padding:10px">no imports'+(q?" matching "+esc(q):"")+'</div>';
+  }
+}
+async function openFunction(name){
+  let f;
+  try{ f=await api("/api/bin/function?name="+encodeURIComponent(name)); }catch(e){ return; }
+  if(f.error) return;
+  $("#codeTitle").textContent = (f.signature||f.name) + "  @ "+(f.address||"");
+  let body = f.decompiled || "// no decompiled output";
+  if(f.disassembly && f.disassembly.length) body += "\n\n/* --- disassembly --- */\n"+f.disassembly.join("\n");
+  renderCode(body);
+  state.openFile = {path:name, content:body};
+  if(!$("#codeDrawer").classList.contains("open")) toggle("#codeDrawer","#tCode");
+}
+
+/* ---- connected mode: login + cloud projects ---- */
+const auth = { account: null };
+
+$("#cloudBtn").onclick   = ()=>{ $("#cloudModal").classList.add("open"); refreshCloud(); };
+$("#cloudClose").onclick = ()=>$("#cloudModal").classList.remove("open");
+$("#cloudModal").addEventListener("click", e=>{ if(e.target.id==="cloudModal") $("#cloudModal").classList.remove("open"); });
+$("#signOut").onclick = async ()=>{ try{ await fetch("/api/auth/logout",{method:"POST"}); }catch{} auth.account=null; updateAcct(); refreshCloud(); };
+
+async function loadAuth(){
+  try{ auth.account = await api("/api/auth/status"); }catch{ auth.account = null; }
+  updateAcct();
+}
+function updateAcct(){
+  const a = auth.account, btn = $("#cloudBtn");
+  if(a && a.loggedIn){ btn.textContent = (a.username||a.email||"Cloud"); btn.classList.add("on"); }
+  else { btn.textContent = "Cloud"; btn.classList.remove("on"); }
+}
+const host = s => s.replace(/^https?:\/\//,"");
+
+async function refreshCloud(){
+  const body = $("#cloudBody"), acctLine = $("#acctLine");
+  await loadAuth();
+  const a = auth.account;
+  if(!a || !a.loggedIn){
+    $("#signOut").style.display = "none";
+    acctLine.textContent = a && a.endpoint ? host(a.endpoint) : "";
+    body.innerHTML = "";
+    const p = document.createElement("div"); p.className="status"; p.style.marginBottom="12px";
+    p.textContent = "Sign in to the openbin backend to browse and open your existing projects. Local analysis (dropping an APK) works without signing in.";
+    const b = document.createElement("button"); b.className="mbtn"; b.textContent="Sign in with your browser"; b.onclick=startLogin;
+    body.appendChild(p); body.appendChild(b);
+    return;
+  }
+  $("#signOut").style.display = "";
+  acctLine.textContent = (a.email||a.username||"") + (a.endpoint ? " · "+host(a.endpoint) : "");
+  body.innerHTML = '<div class="status">Loading your projects…</div>';
+  let data;
+  try{ data = await api("/api/projects"); }
+  catch(e){ body.innerHTML = '<div class="msg err" style="padding:8px">'+esc(String(e))+'</div>'; return; }
+  if(data.error && !data.projects){ body.innerHTML = '<div class="status">'+esc(data.error)+'</div>'; return; }
+  const list = data.projects || [];
+  if(!list.length){ body.innerHTML = '<div class="status">No projects yet. Upload one on the web app, or drop an APK here to analyze locally.</div>'; return; }
+  const plist = document.createElement("div"); plist.className="plist";
+  for(const p of list){
+    const row = document.createElement("div"); row.className = "prow" + (p.openable ? "" : " disabled");
+    const icon = document.createElement("div"); icon.className="kindtag"; icon.textContent = p.kind;
+    const nm = document.createElement("div"); nm.className="pn";
+    const t = document.createElement("div"); t.className="t"; t.textContent = p.name || p.id;
+    const s = document.createElement("div"); s.className="s";
+    s.textContent = [p.packageName, p.openable ? "" : (p.kind!=="APK"&&p.kind!=="BIN" ? "no source tree" : "not ready")].filter(Boolean).join(" · ") || "—";
+    nm.appendChild(t); nm.appendChild(s);
+    const badge = document.createElement("span"); badge.className="badge"; badge.textContent = p.ready ? "ready" : (p.status||"").toLowerCase();
+    row.appendChild(icon); row.appendChild(nm); row.appendChild(badge);
+    if(p.openable) row.onclick = ()=>openProject(p);
+    else row.title = "Only ready APK projects have a browsable source tree";
+    plist.appendChild(row);
+  }
+  body.innerHTML = ""; body.appendChild(plist);
+}
+
+function startLogin(){
+  const body = $("#cloudBody");
+  body.innerHTML = '<div class="status">Starting login…</div>';
+  streamSSE("/api/auth/login", {method:"POST"}, ev=>{
+    if(ev.type==="code"){
+      const url = ev.verification_uri_complete || ev.verification_uri;
+      try{ window.open(url, "_blank", "noopener"); }catch{}
+      body.innerHTML = "";
+      const p = document.createElement("div"); p.className="status";
+      p.innerHTML = 'Opened your browser to confirm. If it didn\'t open, go to <a class="link" target="_blank" rel="noopener" href="'+esc(url)+'">'+esc(ev.verification_uri||url)+'</a> and enter this code:';
+      const box = document.createElement("div"); box.className="code-box"; box.textContent = ev.user_code;
+      const w = document.createElement("div"); w.className="status"; w.textContent = "Waiting for confirmation…";
+      body.appendChild(p); body.appendChild(box); body.appendChild(w);
+    } else if(ev.type==="done"){
+      auth.account = ev.account; updateAcct(); refreshCloud();
+    } else if(ev.type==="error"){
+      body.innerHTML = '<div class="msg err" style="padding:8px">'+esc(ev.error)+'</div>';
+      const b = document.createElement("button"); b.className="mbtn"; b.textContent="Try again"; b.onclick=startLogin;
+      body.appendChild(b);
+    }
+  }).catch(e=>{ body.innerHTML = '<div class="msg err" style="padding:8px">'+esc(String(e))+'</div>'; });
+}
+
+async function openProject(p){
+  $("#cloudModal").classList.remove("open");
+  if(state.streaming) return;
+  state.streaming = true;
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
+  showProgress(bubble, "Opening "+(p.name||p.id)+"…");
+  try{
+    await streamSSE("/api/project/open?id="+encodeURIComponent(p.id), {method:"POST"}, async ev=>{
+      if(ev.type==="progress"){ showProgress(bubble, ev.text); }
+      else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
+      else if(ev.type==="ready"){
+        if(ev.kind==="BIN"){
+          bubble.textContent = "Opened "+(p.name||p.id)+" (binary). No source tree — BINNY analyzes it with Ghidra-backed tools. Ask about its functions, strings, imports, or behavior below.";
+          if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
+          setTreeNote("No file tree — "+(p.name||"this")+" is a binary. Ask BINNY in chat, or open the Binary panel.");
+          loadBinaryPanel();
+        } else {
+          bubble.textContent = "Opened "+(ev.package||ev.name||p.name||p.id)+". Browse it in Explorer, or ask BINNY about it.";
+          clearBinaryPanel();
+          await loadTree();
+          if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
+        }
+      }
+    });
+  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  finally{ state.streaming = false; }
+}
+
+/* shared SSE reader — line-delimited `data: {json}` events */
+async function streamSSE(url, opts, onEvent){
+  const res = await fetch(url, opts);
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+  for(;;){
+    const {value, done} = await reader.read(); if(done) break;
+    buf += dec.decode(value, {stream:true}); let idx;
+    while((idx = buf.indexOf("\n\n")) >= 0){
+      const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
+      if(!line.startsWith("data:")) continue;
+      await onEvent(JSON.parse(line.slice(5).trim()));
+    }
+  }
+}
+
+/* ---- open a local file: APK → JADX, anything else → Ghidra ---- */
+$("#openApk").onclick = ()=>$("#apkInput").click();
+$("#apkInput").onchange = e=>{ if(e.target.files[0]) openLocalFile(e.target.files[0]); e.target.value=""; };
+["dragover","drop"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); }));
+document.addEventListener("drop", e=>{ const f=e.dataTransfer?.files?.[0]; if(f) openLocalFile(f); });
+
+function openLocalFile(f){
+  if(!f) return;
+  if(/\.(apk|xapk|apks)$/i.test(f.name)) decompile(f); // APK → JADX source tree
+  else analyze(f);                                      // binary → Ghidra analysis
+}
+
+async function analyze(file, processor){
+  if(state.streaming) return;
+  state.streaming = true;
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
+  showProgress(bubble, "Uploading "+file.name+"…");
+  const fd = new FormData(); fd.append("file", file); if(processor) fd.append("processor", processor);
+  try{
+    await streamSSE("/api/analyze", {method:"POST", body:fd}, ev=>{
+      if(ev.type==="progress"){ showProgress(bubble, ev.text); }
+      else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
+      else if(ev.type==="need_processor"){
+        bubble.textContent = ev.note || "Pick a CPU architecture:";
+        const row = document.createElement("div"); row.style.cssText="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center";
+        const sel = document.createElement("select");
+        (ev.candidates||[]).forEach(c=>{ const o=document.createElement("option"); o.value=c; o.textContent=c; sel.appendChild(o); });
+        const go = document.createElement("button"); go.className="mbtn"; go.style.marginTop="0"; go.textContent="Analyze";
+        go.onclick = ()=>{ state.streaming=false; analyze(file, sel.value); };
+        row.appendChild(sel); row.appendChild(go); bubble.appendChild(row); scroll();
+      }
+      else if(ev.type==="ready"){
+        bubble.textContent = "Analyzed "+(ev.name||file.name)+" (binary). No source tree — ask BINNY about its functions, strings, imports, or behavior below.";
+        if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
+        setTreeNote("No file tree — "+(ev.name||"this")+" is a binary. Ask BINNY in chat; it reads the Ghidra analysis directly.");
+        if(typeof loadBinaryPanel==="function") loadBinaryPanel();
+      }
+    });
+  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  finally{ state.streaming = false; }
+}
+
+async function decompile(file){
+  if(state.streaming) return;
+  state.streaming = true;
+  const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
+  showProgress(bubble, "Uploading "+file.name+"…");
+  const fd = new FormData(); fd.append("apk", file);
+  try{
+    const res = await fetch("/api/decompile",{method:"POST",body:fd});
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
+    for(;;){
+      const {value,done} = await reader.read(); if(done) break;
+      buf += dec.decode(value,{stream:true}); let idx;
+      while((idx=buf.indexOf("\n\n"))>=0){
+        const line = buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
+        if(!line.startsWith("data:")) continue;
+        const ev = JSON.parse(line.slice(5).trim());
+        if(ev.type==="progress"){ showProgress(bubble, ev.text); }
+        else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
+        else if(ev.type==="ready"){
+          bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
+          clearBinaryPanel();
+          await loadTree();
+          if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
+        }
+      }
+    }
+  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  state.streaming = false;
+}
+
+/* ---- findings ---- */
+let findCount = 0;
+const SEV_RANK = {critical:0,high:1,medium:2,low:3,info:4};
+function addFinding(f){
+  if(findCount===0) $("#findings").innerHTML = "";
+  findCount++; $("#findCount").textContent = "("+findCount+")";
+  state.findings.push(f);
+  const sev = (f.severity||"info").toLowerCase();
+  const el = document.createElement("div"); el.className = "finding s-"+sev;
+  el.dataset.rank = SEV_RANK[sev] ?? 5;
+  const loc = f.file ? (esc(f.file)+(f.line?":"+f.line:"")) : "";
+  el.innerHTML =
+    `<div class="ft"><span class="sev sev-${sev}">${esc(sev)}</span> ${esc(f.title||"(untitled)")}</div>`+
+    `<div class="fm">${[f.cwe?esc(f.cwe):"", f.reachability?esc(f.reachability):"", loc].filter(Boolean).join(" · ")}</div>`+
+    `<div class="fn">${esc(f.note||"")}</div>`;
+  if(loc && f.file){ el.style.cursor="pointer"; el.onclick=()=>openFile(f.file); }
+  // insert sorted by severity
+  const host = $("#findings"); const kids=[...host.children];
+  const after = kids.find(k=> (+k.dataset.rank) > (+el.dataset.rank));
+  host.insertBefore(el, after||null);
+  if(!restoring && !$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
+}
+
+/* ---- report (CVE-style VRR, assembled offline from findings) ---- */
+function buildReport(){
+  const fs = [...state.findings].sort((a,b)=>(SEV_RANK[(a.severity||"info")]??5)-(SEV_RANK[(b.severity||"info")]??5));
+  const isVuln = state.mode==="VULN_RESEARCH";
+  const kind = isVuln ? "Vulnerability Research Report" : "Malware Analysis Report";
+  const now = new Date().toISOString().slice(0,10);
+  let m = `# BINNY ${isVuln?"VRR":"MAR"} — ${kind}\n\n`;
+  m += `Date: ${now}\nMode: ${state.mode}`;
+  if(isVuln && state.focus.size) m += `\nScope: ${[...state.focus].join(", ")}`;
+  if(state.openFile) m += `\nTarget: ${state.openFile.path}`;
+  m += `\n\n## Summary\n\n`;
+  if(!fs.length){ return m + "_No findings recorded yet._\n"; }
+  m += `| ID | Severity | CWE | Finding | Location |\n|----|----------|-----|---------|----------|\n`;
+  fs.forEach((f,i)=>{
+    const id = (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
+    const loc = f.file ? f.file+(f.line?":"+f.line:"") : "—";
+    m += `| ${id} | ${(f.severity||"info").toUpperCase()} | ${f.cwe||"—"} | ${f.title||"(untitled)"} | ${loc} |\n`;
+  });
+  m += `\n## Findings\n`;
+  fs.forEach((f,i)=>{
+    const id = (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
+    m += `\n### ${id} — ${f.title||"(untitled)"}\n\n`;
+    m += `- Severity: ${(f.severity||"info").toUpperCase()}\n`;
+    if(f.cwe) m += `- CWE: ${f.cwe}\n`;
+    if(f.reachability) m += `- Reachability: ${f.reachability}\n`;
+    if(f.file) m += `- Location: ${f.file}${f.line?":"+f.line:""}\n`;
+    m += `\n${f.note||""}\n`;
+  });
+  return m;
+}
+function download(name, text){
+  const blob = new Blob([text],{type:"text/markdown"}); const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+}
+$("#dlReport").onclick   = ()=>download("binny-report.md", buildReport());
+$("#copyReport").onclick = ()=>{ navigator.clipboard?.writeText(buildReport()); $("#copyReport").textContent="Copied"; setTimeout(()=>$("#copyReport").textContent="Copy",1200); };
+
+/* ---- chat ---- */
+function systemPrompt(){
+  const lens = state.mode==="VULN_RESEARCH"
+    ? "You are BINNY in VULNERABILITY RESEARCH mode. Hunt for exploitable bugs; for each, give CWE, severity, source→sink reachability, and remediation. Be rigorous; do not invent findings."
+    : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior across any target (binary, APK, script, document). Classify using the STIX 2.1 malware vocabulary. Be precise and evidence-based.";
+  let s = lens + " You are a local, offline reverse-engineering assistant. Use your available tools to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note). When you produce runnable code — a decryptor/unpacker (malware) or a PoC/exploit (vuln), a YARA/Sigma rule, or a helper script — emit it with write_artifact instead of pasting long code into chat. Format replies in Markdown.";
+  if(state.mode==="VULN_RESEARCH" && state.focus.size) s += " Scope strictly to these vulnerability classes: "+[...state.focus].join(", ")+".";
+  if(state.mode==="MALWARE" && state.focus.size) s += " Prioritize evidence of these STIX 2.1 malware types/behaviors: "+[...state.focus].join(", ")+"; for each, cite the specific strings, API calls, or code that support it.";
+  if(state.openFile) s += "\n\nThe analyst is looking at `"+state.openFile.path+"`:\n```\n"+state.openFile.content.slice(0,24000)+"\n```";
+  return s;
+}
+/* tiny, dependency-free markdown → HTML for assistant replies. Escapes first,
+   so the model's text can never inject HTML; only http(s) links are linkified. */
+function renderMarkdown(src){
+  let s = String(src).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const blocks=[];
+  s = s.replace(/```([\s\S]*?)```/g,(m,code)=>{
+    code = code.replace(/^[a-zA-Z0-9_+-]*\n/,"");           // drop a leading ```lang line
+    blocks.push("<pre><code>"+code.replace(/\n+$/,"")+"</code></pre>");
+    return "\u0000"+(blocks.length-1)+"\u0000";
+  });
+  const inline = t => t
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/__([^_]+)__/g,"<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g,"$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const lines = s.split("\n"); const out=[]; let i=0;
+  while(i<lines.length){
+    const ln = lines[i];
+    if(/^\u0000\d+\u0000$/.test(ln.trim())){ out.push(ln.trim()); i++; continue; }
+    const h = ln.match(/^(#{1,6})\s+(.*)$/);
+    if(h){ out.push("<h4>"+inline(h[2])+"</h4>"); i++; continue; }
+    if(/^\s*[-*]\s+/.test(ln)){ const it=[]; while(i<lines.length && /^\s*[-*]\s+/.test(lines[i])){ it.push("<li>"+inline(lines[i].replace(/^\s*[-*]\s+/,""))+"</li>"); i++; } out.push("<ul>"+it.join("")+"</ul>"); continue; }
+    if(/^\s*\d+\.\s+/.test(ln)){ const it=[]; while(i<lines.length && /^\s*\d+\.\s+/.test(lines[i])){ it.push("<li>"+inline(lines[i].replace(/^\s*\d+\.\s+/,""))+"</li>"); i++; } out.push("<ol>"+it.join("")+"</ol>"); continue; }
+    if(ln.trim()===""){ i++; continue; }
+    const para=[ln]; i++;
+    while(i<lines.length && lines[i].trim()!=="" && !/^(#{1,6})\s+/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i]) && !/^\s*\d+\.\s+/.test(lines[i]) && !/^\u0000\d+\u0000$/.test(lines[i].trim())){ para.push(lines[i]); i++; }
+    out.push("<p>"+inline(para.join("<br>"))+"</p>");
+  }
+  return out.join("\n").replace(/\u0000(\d+)\u0000/g,(m,n)=>blocks[+n]);
+}
+const TYPING = '<span class="typing"><i></i><i></i><i></i></span>';
+// a live status line with an animated spinner, so long jobs (JADX/Ghidra) never look frozen
+function showProgress(bubble, text){
+  bubble.style.display = "block";
+  bubble.innerHTML = '<span class="pstatus"></span> ' + TYPING;
+  bubble.querySelector(".pstatus").textContent = text;
+  scroll();
+}
+
+function addMsg(role, text){
+  $("#empty")?.remove();
+  const m = document.createElement("div"); m.className="msg "+role;
+  const tools = role==="assistant" ? `<div class="tools"></div>` : "";
+  m.innerHTML = `<div class="who">${role==="user"?"you":role==="err"?"error":"binny"}</div>${tools}<div class="bubble"></div>`;
+  const bubble = m.querySelector(".bubble");
+  bubble.textContent = text;
+  if(role==="assistant" && !text) bubble.style.display="none";
+  $("#convo").appendChild(m); scroll();
+  return m; // caller reaches .bubble / .tools
+}
+function addToolCard(container, name, input){
+  const card = document.createElement("div"); card.className="tool-card";
+  const arg = input ? JSON.stringify(input).slice(0,120) : "";
+  card.innerHTML = `<div class="head"><span class="dot"></span><span class="tname">${esc(name)}</span><span class="targ">${esc(arg)}</span></div><div class="body"></div>`;
+  card.querySelector(".head").onclick = ()=>card.classList.toggle("open");
+  container.appendChild(card);
+  scroll(); return card;
+}
+function scroll(){ const c=$("#convo"); c.scrollTop=c.scrollHeight; }
+
+async function send(prefix){
+  if(state.streaming) return;
+  const ta = $("#input");
+  let text = (prefix||"") + ta.value.trim();
+  if(!text.trim()) return;
+  if(!state.model){ addMsg("err","Pick a model first (top-right). Run Ollama/LM Studio for a local one, or configure an API key."); return; }
+  ta.value=""; autoSize();
+  addMsg("user", text);
+  state.messages.push({role:"user", text});
+
+  // The assistant turn is an ordered FLOW: text segments and tool cards in the
+  // order they happen, plus a live status line so it never looks frozen.
+  $("#empty")?.remove();
+  const m = document.createElement("div"); m.className="msg assistant";
+  m.innerHTML = '<div class="who">binny</div><div class="flow"></div><div class="work"></div>';
+  $("#convo").appendChild(m);
+  const flow = m.querySelector(".flow"), work = m.querySelector(".work");
+  const setWork = label => { work.innerHTML = label ? '<span class="pstatus"></span> '+TYPING : ""; if(label) work.querySelector(".pstatus").textContent = label; scroll(); };
+  const textSeg = () => { const d=document.createElement("div"); d.className="bubble"; flow.appendChild(d); return d; };
+  let seg=null, segAcc="", fullAcc="", pendingCard=null;
+  setWork("Thinking…");
+  state.streaming = true; $("#send").disabled = $("#investigate").disabled = true;
+
+  const body = {
+    baseURL: state.model.baseURL || "",
+    providerId: state.model.providerId || "",
+    model: state.model.model,
+    maxTokens: state.maxTokens,
+    system: systemPrompt(),
+    messages: state.messages,
+  };
+  try{
+    const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!res.ok || !(res.headers.get("content-type")||"").includes("text/event-stream")){
+      let msg = "Request failed ("+res.status+").";
+      try{ const j=await res.json(); if(j && j.error) msg=j.error; }catch{}
+      setWork(null); const e=textSeg(); e.classList.add("errseg"); e.textContent=msg;
+      state.streaming=false; $("#send").disabled=$("#investigate").disabled=false; return;
+    }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
+    for(;;){
+      const {value,done} = await reader.read(); if(done) break;
+      buf += dec.decode(value,{stream:true});
+      let idx;
+      while((idx = buf.indexOf("\n\n")) >= 0){
+        const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
+        if(!line.startsWith("data:")) continue;
+        const ev = JSON.parse(line.slice(5).trim());
+        if(ev.type==="chunk"){ if(!seg){ seg=textSeg(); segAcc=""; } segAcc+=ev.text; fullAcc+=ev.text; seg.innerHTML=renderMarkdown(segAcc); setWork("Writing…"); }
+        else if(ev.type==="tool_call"){ seg=null; pendingCard=addToolCard(flow, ev.name, ev.input); setWork("Running "+ev.name+"…"); }
+        else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork("Thinking…"); }
+        else if(ev.type==="finding"){ addFinding(ev); }
+        else if(ev.type==="artifact"){ addArtifact(ev); }
+        else if(ev.type==="usage"){ state.tok.sess += (ev.input||0)+(ev.output||0); if(ev.context) state.tok.ctx = ev.context; updateMeter(); }
+        else if(ev.type==="error"){ seg=null; const e=textSeg(); e.classList.add("errseg"); e.textContent=ev.error; }
+        else if(ev.type==="done"){ if(ev.note){ const n=document.createElement("div"); n.className="work"; n.textContent="Note: "+ev.note; flow.appendChild(n); } }
+      }
+    }
+    setWork(null);
+    if(fullAcc) state.messages.push({role:"assistant", text:fullAcc});
+    else if(!flow.querySelector(".tool-card") && !flow.querySelector(".errseg")){ const e=textSeg(); e.className="status"; e.textContent="BINNY returned an empty response. Try asking again or rephrasing; if the context is large, use Settings → Compact and retry."; }
+  }catch(e){ setWork(null); const er=textSeg(); er.classList.add("errseg"); er.textContent=String(e); }
+  state.streaming=false; $("#send").disabled=$("#investigate").disabled=false;
+  saveConvo(); // persist so the conversation survives a reload
+}
+
+$("#send").onclick = ()=>send();
+$("#investigate").onclick = ()=>send(
+  state.openFile
+    ? "Investigate this file end to end: walk the entry points, trace untrusted input to any dangerous sink, and report what you find with evidence. "
+    : "Investigate this target. Ask me to open the files you need. "
+);
+const inputEl = $("#input");
+inputEl.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); send(); } });
+inputEl.addEventListener("input", autoSize);
+function autoSize(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,180)+"px"; }
+
+/* ---- resizable drawers ---- */
+function setupResizers(){
+  document.querySelectorAll(".drawer").forEach(d=>{
+    const side = d.id==="explorerDrawer" ? "right" : "left"; // explorer is on the left; the rest on the right
+    try{ const w=localStorage.getItem("binny.w."+d.id); if(w) d.style.width=w+"px"; }catch{}
+    const h=document.createElement("div"); h.className="resizer "+side; d.appendChild(h);
+    h.addEventListener("pointerdown", e=>{
+      e.preventDefault(); h.classList.add("drag");
+      const sx=e.clientX, sw=d.offsetWidth;
+      const mv=ev=>{ const dw = side==="right" ? (ev.clientX-sx) : (sx-ev.clientX); d.style.width=Math.max(200, Math.min(window.innerWidth-340, sw+dw))+"px"; };
+      const up=()=>{ h.classList.remove("drag"); document.removeEventListener("pointermove",mv); document.removeEventListener("pointerup",up); try{ localStorage.setItem("binny.w."+d.id, d.offsetWidth); }catch{} };
+      document.addEventListener("pointermove",mv); document.addEventListener("pointerup",up);
+    });
+  });
+}
+
+/* ---- conversation history (persisted in localStorage) ---- */
+const CONVO_KEY="binny.convos", CUR_KEY="binny.cur", MAX_CONVOS=40;
+let curConvo=null;
+function loadConvos(){ try{ return JSON.parse(localStorage.getItem(CONVO_KEY)||"[]"); }catch{ return []; } }
+function saveConvos(cs){ try{ localStorage.setItem(CONVO_KEY, JSON.stringify(cs.slice(0,MAX_CONVOS))); }catch{} }
+function convoTitle(){ const u=state.messages.find(m=>m.role==="user"); return ((u&&u.text)||"New chat").replace(/\s+/g," ").trim().slice(0,60) || "New chat"; }
+function saveConvo(){
+  if(!state.messages.length && !state.findings.length && !state.artifacts.length) return;
+  if(!curConvo) curConvo="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const cs=loadConvos().filter(c=>c.id!==curConvo);
+  cs.unshift({id:curConvo, title:convoTitle(), ts:Date.now(), mode:state.mode, messages:state.messages, findings:state.findings, artifacts:state.artifacts, tok:state.tok});
+  saveConvos(cs); try{ localStorage.setItem(CUR_KEY,curConvo); }catch{}
+}
+function resetConvoUI(){
+  $("#convo").innerHTML = EMPTY_HTML;
+  $("#findings").innerHTML='<div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div>'; findCount=0; $("#findCount").textContent="";
+  $("#artifacts").innerHTML='<div class="status" style="padding:10px">No artifacts yet. Ask BINNY to write a decryptor, a PoC, or a YARA rule.</div>'; artCount=0; $("#artCount").textContent="";
+  $("#meter").hidden=true;
+}
+function newChat(){
+  saveConvo(); curConvo=null; try{ localStorage.removeItem(CUR_KEY); }catch{}
+  state.messages=[]; state.findings=[]; state.artifacts=[]; state.tok={ctx:0,sess:0};
+  resetConvoUI(); renderHistory();
+}
+function loadConvo(id){
+  saveConvo();
+  const c=loadConvos().find(x=>x.id===id); if(!c) return;
+  curConvo=id; try{ localStorage.setItem(CUR_KEY,id); }catch{}
+  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode;
+  resetConvoUI();
+  [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x.dataset.mode===state.mode)); renderFocus();
+  restoring=true;
+  state.messages.forEach(m=>{ const el=addMsg(m.role==="user"?"user":"assistant",""); const b=el.querySelector(".bubble"); b.style.display="block"; m.role==="user" ? b.textContent=m.text : b.innerHTML=renderMarkdown(m.text); });
+  (c.findings||[]).forEach(addFinding);
+  (c.artifacts||[]).forEach(addArtifact);
+  restoring=false;
+  if(state.tok.sess) updateMeter();
+  renderHistory();
+}
+function relTime(ts){ const s=(Date.now()-ts)/1000; if(s<60)return"just now"; if(s<3600)return Math.floor(s/60)+"m ago"; if(s<86400)return Math.floor(s/3600)+"h ago"; return new Date(ts).toLocaleDateString(); }
+function renderHistory(){
+  const menu=$("#historyMenu"), cs=loadConvos(); menu.innerHTML="";
+  if(!cs.length){ menu.innerHTML='<div class="menu-note">No past conversations yet.</div>'; return; }
+  cs.forEach(c=>{
+    const row=document.createElement("div"); row.className="histrow"+(c.id===curConvo?" cur":"");
+    const t=document.createElement("div"); t.className="ht"; t.textContent=c.title||"Untitled";
+    const d=document.createElement("div"); d.className="hd"; d.textContent=relTime(c.ts);
+    const x=document.createElement("button"); x.className="hx"; x.type="button"; x.textContent="Delete";
+    row.onclick=e=>{ if(e.target===x) return; $("#historyMenu").hidden=true; loadConvo(c.id); };
+    x.onclick=e=>{ e.stopPropagation(); saveConvos(loadConvos().filter(y=>y.id!==c.id)); if(c.id===curConvo) newChat(); else renderHistory(); };
+    row.appendChild(t); row.appendChild(d); row.appendChild(x); menu.appendChild(row);
+  });
+}
+$("#newChatBtn").onclick = newChat;
+$("#historyBtn").onclick = e=>{ e.stopPropagation(); const m=$("#historyMenu"); m.hidden=!m.hidden; if(!m.hidden) renderHistory(); };
+document.addEventListener("click", e=>{ if(!$("#history").contains(e.target)) $("#historyMenu").hidden=true; });
+function restoreLast(){ let cur; try{ cur=localStorage.getItem(CUR_KEY); }catch{} const cs=loadConvos(); const c=cs.find(x=>x.id===cur)||cs[0]; if(c) loadConvo(c.id); }
+window.addEventListener("beforeunload", saveConvo); // don't lose the current chat on close/refresh
+
+/* ---- boot ---- */
+EMPTY_HTML = $("#convo").innerHTML; // capture before any message replaces it
+setupResizers();
+renderFocus(); loadModels(); loadTree(); loadAuth(); loadBinaryPanel();
+restoreLast(); // pick up the last conversation
+</script>
+</body>
+</html>
