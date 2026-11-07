@@ -177,6 +177,7 @@ type Analysis struct {
 	Error        string        `json:"error,omitempty"` // worker-side failure marker
 	Functions    []Function    `json:"functions"`
 	Strings      []string      `json:"strings"`
+	StringRefs   []StringRef   `json:"string_refs"` // strings that are referenced from code, with the referencing functions
 	Imports      []string      `json:"imports"`
 	Exports      []Symbol      `json:"exports"`
 	EntryPoints  []Symbol      `json:"entry_points"`
@@ -210,6 +211,15 @@ type Instruction struct {
 type Xrefs struct {
 	Callers []string `json:"callers"`
 	Callees []string `json:"callees"`
+}
+
+// StringRef is a string literal and the functions that reference it — the
+// string→code pivot. Populated by the worker when the pointer to the string is
+// mapped in the program (for a raw image that requires the correct load base).
+type StringRef struct {
+	Text  string   `json:"text"`
+	Addr  string   `json:"addr"`
+	Funcs []string `json:"funcs"`
 }
 
 // Symbol is a named address (export / entry point / TLS callback).

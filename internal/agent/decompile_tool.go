@@ -87,11 +87,22 @@ func registerDecompileTool(reg *tools.Registry, sess *app.Session, tb *tools.Too
 				}
 			}
 			if blob == nil {
+				// Raw images linked high (e.g. a MIPS KSEG0 kernel at
+				// 0x80000000) must load at that base or Ghidra resolves no
+				// string/data xrefs; recover it from string-pointer alignment.
+				imageBase := ""
+				if a.Loader == "binary" {
+					if bg := archdetect.DetectBase(path, a.Processor); bg.Base != 0 {
+						imageBase = bg.Hex
+						logf("Load base %s detected (%s)", bg.Hex, bg.Evidence)
+					}
+				}
 				blob, err = ghidra.Analyze(ctx, ghidra.Request{
 					BinaryPath: path,
 					Arch:       guess.Detail,
 					Processor:  a.Processor,
 					Loader:     a.Loader,
+					ImageBase:  imageBase,
 				}, logf)
 				if err != nil {
 					return "", fmt.Errorf("local decompile failed: %w", err)

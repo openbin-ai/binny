@@ -243,6 +243,7 @@ func (tb *Toolbox) RegisterRead(reg *Registry) {
 	reg.Add(tb.listFunctionsTool())
 	reg.Add(tb.getFunctionTool())
 	reg.Add(tb.getStringsTool())
+	reg.Add(tb.findStringXrefsTool())
 	reg.Add(tb.getImportsTool())
 	reg.Add(tb.getExportsTool())
 	reg.Add(tb.getDataSymbolsTool())
@@ -417,6 +418,46 @@ func (tb *Toolbox) getStringsTool() *Tool {
 				return "", err
 			}
 			return filterList(a.Strings, args.Filter, maxListItems), nil
+		},
+	}
+}
+
+func (tb *Toolbox) findStringXrefsTool() *Tool {
+	return &Tool{
+		Def: Def("find_string_xrefs",
+			"Find which FUNCTIONS reference a string — the string→code pivot. Give a case-insensitive substring `filter` (e.g. a log/format string near the code you want). Returns each matching string with its address and the functions that use it, so you can jump straight to the right FUN_xxxxxxxx instead of guessing. Empty results on a raw image usually mean it was loaded at the wrong base (no load base detected).",
+			Obj(map[string]any{"filter": StrProp("case-insensitive substring to match against string text")}, "filter")),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			var args struct{ Filter string }
+			_ = json.Unmarshal(input, &args)
+			a, err := tb.analysisBlob()
+			if err != nil {
+				return "", err
+			}
+			f := strings.ToLower(strings.TrimSpace(args.Filter))
+			if f == "" {
+				return "", fmt.Errorf("provide a filter substring")
+			}
+			var b strings.Builder
+			n := 0
+			for _, sr := range a.StringRefs {
+				if !strings.Contains(strings.ToLower(sr.Text), f) {
+					continue
+				}
+				if n >= maxListItems {
+					b.WriteString("… (more; narrow the filter)\n")
+					break
+				}
+				fmt.Fprintf(&b, "%q @ %s  ←  %s\n", truncate(sr.Text, 120), sr.Addr, strings.Join(sr.Funcs, ", "))
+				n++
+			}
+			if n == 0 {
+				if len(a.StringRefs) == 0 {
+					return "no string xrefs in this analysis — the image was likely loaded with no resolvable pointers (raw image at the wrong base, or an older worker). Re-decompile so a load base is detected.", nil
+				}
+				return "no referenced string matches " + strconv.Quote(args.Filter) + " (try get_strings to confirm the text exists; it may be present but not referenced from code)", nil
+			}
+			return b.String(), nil
 		},
 	}
 }
@@ -796,12 +837,22 @@ func (tb *Toolbox) searchTool() *Tool {
 					hits = append(hits, "fn: "+f.Name+" @ "+f.Address)
 				}
 			}
+			// Index string→functions so a string hit can name the code that
+			// uses it (the pivot analysts actually want).
+			strToFuncs := make(map[string][]string, len(a.StringRefs))
+			for _, sr := range a.StringRefs {
+				strToFuncs[sr.Text] = sr.Funcs
+			}
 			for _, s := range a.Strings {
 				if len(hits) >= maxSearchHits {
 					break
 				}
 				if re.MatchString(s) {
-					hits = append(hits, "str: "+truncate(s, 120))
+					row := "str: " + truncate(s, 120)
+					if fns := strToFuncs[s]; len(fns) > 0 {
+						row += "  ← " + strings.Join(fns, ", ")
+					}
+					hits = append(hits, row)
 				}
 			}
 			if len(hits) == 0 {
