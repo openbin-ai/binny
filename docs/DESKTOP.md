@@ -340,3 +340,54 @@ aren't extracted into the backend's `srcDir` and `source-bundle` is APK-only, so
 the client has no browsable tree or bundle to pull. That's a backend limitation,
 not a desktop one; the picker shows them disabled and the open route returns a
 clear "can't be opened yet" message.
+
+## 9. Raw firmware: load base + string xrefs
+
+A raw image (no ELF/PE/Mach-O header) is loaded by Ghidra's `BinaryLoader`,
+which defaults to file offset 0. That is wrong for anything linked to run at a
+high virtual address — the common case for a kernel (MIPS KSEG0 `0x80000000`,
+many ARM kernels at `0x80000000`/`0xC0000000`). Every absolute pointer in the
+code then lands past the end of the mapped image, so Ghidra resolves **no**
+string/data xrefs: the decompiler prints bare address constants instead of the
+string, and string→code navigation is impossible (the classic "stripped
+firmware, can't find the parser" wall).
+
+Fix (three parts):
+
+- **Base detection** — `archdetect.DetectBase` (internal/archdetect/basedetect.go)
+  recovers the load base without Ghidra, basefind-style: at the true base a
+  pointer word that points at a string equals `base + stringOffset`, so every
+  string-pointer votes for the same base and it wins by a landslide. All three
+  raw-image paths (TUI, desktop `internal/serve/binary.go`, agent
+  `internal/agent/decompile_tool.go`) call it and pass `ghidra.Request.ImageBase`.
+- **Worker** — the default worker image (`openbin/ghidra-worker:8`, built from
+  `platform/ghidra-worker/`) takes an `image_base` form field → `-loader-baseAddr`,
+  and `extract.py` emits `string_refs` (each string's address + the functions
+  that reference it). No manual image build or `OPENBIN_GHIDRA_IMAGE` override is
+  needed — `ghidra.Request.ImageBase` carries the base to the worker.
+- **Tooling** — `api.StringRef` carries the pivot; the agent gets a
+  `find_string_xrefs` tool and the `search` tool annotates each string hit with
+  the functions that use it.
+
+Run it (raw firmware needs a Docker/Colima VM with ≥8 GB):
+
+    colima start --memory 8 --cpu 4         # or Docker Desktop ≥ 8 GB
+    ./run.sh
+
+The worker's JVM heap is runtime-tunable (`MAXMEM`, default 2G). Loading a raw
+image at its real base makes the decompiler resolve thousands of pointers, so
+JVM heap + the native decompiler processes + OS must fit or the kernel OOM-kills
+analyzeHeadless (`exited 137`). BINNY therefore sets `MAXMEM=4G` automatically
+whenever it passes an `ImageBase` (raw image) — and only then, so analyzing an
+ordinary binary on a modest laptop still runs at 2G. Override with
+`BINNY_WORKER_HEAP` (e.g. `6G` on a 12 GB VM for a faster run with fewer stubbed
+bodies).
+
+Budget: loading at the real base resolves thousands of pointers, so the
+decompiled output is much larger and slower to serialize. `ghidra.Analyze`
+reserves a bigger tail (`BINNY_EXTRACT_TAIL_MARGIN`, default 1200s) out of the
+total (`BINNY_ANALYZE_TIMEOUT`, default 3600s) so `extract.py` always writes a
+(possibly partial) `result.json` with full `string_refs` before the hard kill;
+`main.py` also salvages a partial result if the subprocess is killed anyway.
+String xrefs come from auto-analysis (~4 min on the sample kernel), not from
+decompilation, so they are present even when some function bodies are stubbed.

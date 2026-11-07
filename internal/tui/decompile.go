@@ -124,11 +124,26 @@ func decompileLocally(ctx context.Context, path, processor string, logf ghidra.L
 		logf("Forcing processor %s%s", processor, map[bool]string{true: " (raw-binary loader)", false: ""}[loader == "binary"])
 	}
 
+	// Raw images linked high (e.g. a MIPS KSEG0 kernel at 0x80000000) must load
+	// at that base or Ghidra resolves no string/data xrefs; recover it from
+	// string-pointer alignment.
+	imageBase := ""
+	if loader == "binary" {
+		if bg := archdetect.DetectBase(path, processor); bg.Base != 0 {
+			imageBase = bg.Hex
+			logf("Load base %s detected:", bg.Hex)
+			logf("  · %s", bg.Evidence)
+		}
+	}
+
+	// Timeout budget (large-firmware defaults, BINNY_* env overrides) is
+	// applied inside ghidra.Analyze so the GUI and agent paths share it.
 	blob, err := ghidra.Analyze(ctx, ghidra.Request{
 		BinaryPath: path,
 		Arch:       guess.Detail,
 		Processor:  processor,
 		Loader:     loader,
+		ImageBase:  imageBase,
 	}, logf)
 	if err != nil {
 		return zero, "", err

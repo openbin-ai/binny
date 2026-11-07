@@ -44,3 +44,16 @@ func TestDetectMissing(t *testing.T) {
 		t.Fatalf("want raw for missing file, got %+v", g)
 	}
 }
+
+// TestDetectZeroPaddedRaw: a raw kernel that starts with zero padding must not
+// be mistaken for PE (debug/pe parses a magic-less file as a bare COFF header
+// with machine=0x0), or the firmware/processor flow is skipped entirely.
+func TestDetectZeroPaddedRaw(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "kernel.bin")
+	if err := os.WriteFile(p, make([]byte, 4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if g := Detect(p); g.Format != "raw" {
+		t.Fatalf("want raw, got %+v", g)
+	}
+}

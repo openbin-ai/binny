@@ -9,7 +9,10 @@ import (
 	"debug/elf"
 	"debug/macho"
 	"debug/pe"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
 )
 
 // Guess is the detection outcome.
@@ -99,7 +102,33 @@ func detectELF(path string) (Guess, bool) {
 	}, true
 }
 
+// hasPEMagic reports whether path starts with "MZ" and e_lfanew points at a
+// "PE\0\0" signature. debug/pe doesn't require either: without "MZ" it parses
+// offset 0 as a bare COFF header, so any headerless image (e.g. a raw kernel
+// starting with zero padding) "opens" as PE with machine=0x0 and would skip
+// the raw-firmware path — Ghidra then fails to import it.
+func hasPEMagic(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var dos [0x40]byte
+	if _, err := io.ReadFull(f, dos[:]); err != nil || dos[0] != 'M' || dos[1] != 'Z' {
+		return false
+	}
+	off := int64(binary.LittleEndian.Uint32(dos[0x3c:]))
+	var sig [4]byte
+	if _, err := f.ReadAt(sig[:], off); err != nil {
+		return false
+	}
+	return sig == [4]byte{'P', 'E', 0, 0}
+}
+
 func detectPE(path string) (Guess, bool) {
+	if !hasPEMagic(path) {
+		return Guess{}, false
+	}
 	f, err := pe.Open(path)
 	if err != nil {
 		return Guess{}, false

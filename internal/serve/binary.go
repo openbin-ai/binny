@@ -73,8 +73,21 @@ func realAnalyzeBinary(ctx context.Context, binPath, name, processor string, siz
 		logf("Using processor %s.", processor)
 	}
 
+	// Raw images linked to run at a high virtual address (e.g. a MIPS KSEG0
+	// kernel at 0x80000000) must be loaded at that base, or every absolute
+	// pointer lands outside the mapped image and Ghidra resolves no string/data
+	// xrefs. Recover the base from string-pointer alignment.
+	imageBase := ""
+	if loader == "binary" {
+		if bg := archdetect.DetectBase(binPath, processor); bg.Base != 0 {
+			imageBase = bg.Hex
+			logf("Load base %s detected:", bg.Hex)
+			logf("  · %s", bg.Evidence)
+		}
+	}
+
 	logf("Running Ghidra on %s…", name)
-	blob, err := ghidra.Analyze(ctx, ghidra.Request{BinaryPath: binPath, Arch: guess.Detail, Processor: processor, Loader: loader}, logf)
+	blob, err := ghidra.Analyze(ctx, ghidra.Request{BinaryPath: binPath, Arch: guess.Detail, Processor: processor, Loader: loader, ImageBase: imageBase}, logf)
 	if err != nil {
 		return zero, err
 	}
