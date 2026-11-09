@@ -286,6 +286,8 @@
   <aside class="drawer" id="findingsDrawer">
     <h3>Findings</h3>
     <div class="findings" id="findings"><div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div></div>
+    <h3 id="hlHead" style="display:none">Highlights <span id="hlCount" style="font-weight:400;color:var(--muted);font-size:11px"></span></h3>
+    <div class="findings" id="highlights" style="display:none"></div>
   </aside>
 
   <aside class="drawer" id="artifactsDrawer">
@@ -298,6 +300,7 @@
       <span style="float:right;display:flex;gap:6px">
         <button id="copyReport" style="padding:2px 8px;font-size:11px">Copy</button>
         <button id="dlReport" style="padding:2px 8px;font-size:11px">Download .md</button>
+        <button id="saveReport" style="padding:2px 8px;font-size:11px;display:none" title="Push the draft to this project's report on your account (DRAFT — review before publishing)">Save to project</button>
       </span>
     </h3>
     <div class="codewrap"><pre class="code" id="report" style="padding:12px;white-space:pre-wrap"></pre></div>
@@ -332,9 +335,12 @@ const state = {
   bin: null,          // binary analysis for the panel (null until loaded)
   binView: "functions",
   artifacts: [],      // {title, language, kind, content}
+  highlights: [],     // {name, kind:"function"|"file", line, tag, note, pushed}
   tok: {ctx:0, sess:0}, // context size (last turn) and session total
   maxTokens: 2048,    // output cap per turn
   budget: 128000,     // context budget; meter warns as it fills
+  projectId: null,    // backend project id when a cloud project is open (null = local tree)
+  projectName: "",
 };
 let restoring = false;   // true while replaying a saved conversation (suppresses auto-open)
 let EMPTY_HTML = "";     // captured empty-state markup, to reset the transcript
@@ -550,6 +556,9 @@ async function loadBinaryPanel(){
   const m = data.metadata || {};
   $("#binMeta").textContent =
     `${m.executable_format||"?"} · ${m.language||"?"} · ${data.functionsTotal} funcs · ${data.stringsTotal} strings · ${(data.imports||[]).length} imports`;
+  // The Code panel is empty until a function is opened — say so instead of
+  // showing a blank pane when the Code button is pressed.
+  if(!state.openFile){ $("#codeTitle").textContent="Code"; $("#code").innerHTML='<div class="status" style="padding:12px">No function open. Click one in the Binary panel, or click a finding/highlight to jump to the code it is about.</div>'; }
   renderBinList();
   if(!$("#binaryDrawer").classList.contains("open")) toggle("#binaryDrawer","#tBinary");
 }
@@ -595,9 +604,10 @@ async function openFunction(name){
   $("#codeTitle").textContent = (f.signature||f.name) + "  @ "+(f.address||"");
   let body = f.decompiled || "// no decompiled output";
   if(f.disassembly && f.disassembly.length) body += "\n\n/* --- disassembly --- */\n"+f.disassembly.join("\n");
-  renderCode(body);
+  $("#code").innerHTML = renderCode(body);
   state.openFile = {path:name, content:body};
   if(!$("#codeDrawer").classList.contains("open")) toggle("#codeDrawer","#tCode");
+  updateCtx();
 }
 
 /* ---- connected mode: login + cloud projects ---- */
@@ -694,6 +704,7 @@ async function openProject(p){
       if(ev.type==="progress"){ showProgress(bubble, ev.text); }
       else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="ready"){
+        setProject(ev.projectId||p.id, ev.name||p.name||"");
         if(ev.kind==="BIN"){
           bubble.textContent = "Opened "+(p.name||p.id)+" (binary). No source tree — BINNY analyzes it with Ghidra-backed tools. Ask about its functions, strings, imports, or behavior below.";
           if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
@@ -758,6 +769,7 @@ async function analyze(file, processor){
         row.appendChild(sel); row.appendChild(go); bubble.appendChild(row); scroll();
       }
       else if(ev.type==="ready"){
+        setProject(null, "");
         bubble.textContent = "Analyzed "+(ev.name||file.name)+" (binary). No source tree — ask BINNY about its functions, strings, imports, or behavior below.";
         if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
         setTreeNote("No file tree — "+(ev.name||"this")+" is a binary. Ask BINNY in chat; it reads the Ghidra analysis directly.");
@@ -787,6 +799,7 @@ async function decompile(file){
         if(ev.type==="progress"){ showProgress(bubble, ev.text); }
         else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
         else if(ev.type==="ready"){
+          setProject(null, "");
           bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
           clearBinaryPanel();
           await loadTree();
@@ -808,12 +821,16 @@ function addFinding(f){
   const sev = (f.severity||"info").toLowerCase();
   const el = document.createElement("div"); el.className = "finding s-"+sev;
   el.dataset.rank = SEV_RANK[sev] ?? 5;
-  const loc = f.file ? (esc(f.file)+(f.line?":"+f.line:"")) : "";
+  // Where the claim lives: a function (binaries, or the enclosing method on
+  // source) and/or file:line. Clicking opens that code.
+  const fnName = f.function || (state.bin && f.file ? f.file : "");
+  const loc = f.file && f.file!==fnName ? (esc(f.file)+(f.line?":"+f.line:"")) : "";
   el.innerHTML =
     `<div class="ft"><span class="sev sev-${sev}">${esc(sev)}</span> ${esc(f.title||"(untitled)")}</div>`+
-    `<div class="fm">${[f.cwe?esc(f.cwe):"", f.reachability?esc(f.reachability):"", loc].filter(Boolean).join(" · ")}</div>`+
+    `<div class="fm">${[f.cwe?esc(f.cwe):"", f.reachability?esc(f.reachability):"", fnName?"ƒ "+esc(fnName):"", loc].filter(Boolean).join(" · ")}</div>`+
     `<div class="fn">${esc(f.note||"")}</div>`;
-  if(loc && f.file){ el.style.cursor="pointer"; el.onclick=()=>openFile(f.file); }
+  const target = findingTarget(f);
+  if(target){ el.style.cursor="pointer"; el.title="Open the code this finding is about"; el.onclick=target; }
   // insert sorted by severity
   const host = $("#findings"); const kids=[...host.children];
   const after = kids.find(k=> (+k.dataset.rank) > (+el.dataset.rank));
@@ -821,36 +838,102 @@ function addFinding(f){
   if(!restoring && !$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
 }
 
+// findingTarget returns the click action that opens the code a finding (or
+// highlight) is anchored to: the function in the Binary panel's viewer when a
+// binary is open, else the file in the tree. null when it has no anchor.
+function findingTarget(f){
+  const fnName = f.function || (f.kind==="function" ? f.name : "");
+  if(state.bin){ const n = fnName || f.file; return n ? ()=>openFunction(n) : null; }
+  const file = f.file || (f.kind==="file" ? f.name : "");
+  return file ? ()=>openFile(file) : null;
+}
+
+/* ---- highlights (evidence board) ---- */
+function addHighlight(h){
+  state.highlights.push(h);
+  const host=$("#highlights"); host.style.display=""; $("#hlHead").style.display="";
+  $("#hlCount").textContent = "("+state.highlights.length+")";
+  const el=document.createElement("div"); el.className="finding s-info";
+  const where = h.kind==="file" ? esc(h.name)+(h.line?":"+h.line:"") : "ƒ "+esc(h.name);
+  el.innerHTML =
+    `<div class="ft">${h.tag?'<span class="sev sev-info">'+esc(h.tag)+'</span> ':""}${where}</div>`+
+    `<div class="fm">${h.pushed ? "on the project's Highlights board (OpenBIN)" : "local — not on OpenBIN"}</div>`+
+    `<div class="fn">${esc(h.note||"")}</div>`;
+  const target = findingTarget(h);
+  if(target){ el.style.cursor="pointer"; el.onclick=target; }
+  host.appendChild(el);
+  if(!restoring && !$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
+}
+
 /* ---- report (CVE-style VRR, assembled offline from findings) ---- */
-function buildReport(){
-  const fs = [...state.findings].sort((a,b)=>(SEV_RANK[(a.severity||"info")]??5)-(SEV_RANK[(b.severity||"info")]??5));
+// The report is a list of sections — the same shape the backend report stores
+// (and the TUI's /save pushes) — so "Save to project" sends them as-is and the
+// markdown view/download is just the sections joined.
+function reportHeader(){
   const isVuln = state.mode==="VULN_RESEARCH";
   const kind = isVuln ? "Vulnerability Research Report" : "Malware Analysis Report";
-  const now = new Date().toISOString().slice(0,10);
-  let m = `# BINNY ${isVuln?"VRR":"MAR"} — ${kind}\n\n`;
-  m += `Date: ${now}\nMode: ${state.mode}`;
-  if(isVuln && state.focus.size) m += `\nScope: ${[...state.focus].join(", ")}`;
-  if(state.openFile) m += `\nTarget: ${state.openFile.path}`;
-  m += `\n\n## Summary\n\n`;
-  if(!fs.length){ return m + "_No findings recorded yet._\n"; }
-  m += `| ID | Severity | CWE | Finding | Location |\n|----|----------|-----|---------|----------|\n`;
+  let h = `Date: ${new Date().toISOString().slice(0,10)}\nMode: ${state.mode}`;
+  if(isVuln && state.focus.size) h += `\nScope: ${[...state.focus].join(", ")}`;
+  if(state.openFile) h += `\nTarget: ${state.openFile.path}`;
+  return {isVuln, kind, h};
+}
+function buildReportSections(){
+  const fs = [...state.findings].sort((a,b)=>(SEV_RANK[(a.severity||"info")]??5)-(SEV_RANK[(b.severity||"info")]??5));
+  const {isVuln, h} = reportHeader();
+  const fid = i => (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
+  if(!fs.length) return [];
+  let sum = h + `\n\n| ID | Severity | CWE | Finding | Location |\n|----|----------|-----|---------|----------|\n`;
   fs.forEach((f,i)=>{
-    const id = (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
     const loc = f.file ? f.file+(f.line?":"+f.line:"") : "—";
-    m += `| ${id} | ${(f.severity||"info").toUpperCase()} | ${f.cwe||"—"} | ${f.title||"(untitled)"} | ${loc} |\n`;
+    sum += `| ${fid(i)} | ${(f.severity||"info").toUpperCase()} | ${f.cwe||"—"} | ${f.title||"(untitled)"} | ${loc} |\n`;
   });
-  m += `\n## Findings\n`;
+  const sections = [{id:"summary", title:"Summary", content:sum}];
   fs.forEach((f,i)=>{
-    const id = (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
-    m += `\n### ${id} — ${f.title||"(untitled)"}\n\n`;
-    m += `- Severity: ${(f.severity||"info").toUpperCase()}\n`;
-    if(f.cwe) m += `- CWE: ${f.cwe}\n`;
-    if(f.reachability) m += `- Reachability: ${f.reachability}\n`;
-    if(f.file) m += `- Location: ${f.file}${f.line?":"+f.line:""}\n`;
-    m += `\n${f.note||""}\n`;
+    let c = `- Severity: ${(f.severity||"info").toUpperCase()}\n`;
+    if(f.cwe) c += `- CWE: ${f.cwe}\n`;
+    if(f.reachability) c += `- Reachability: ${f.reachability}\n`;
+    if(f.file) c += `- Location: ${f.file}${f.line?":"+f.line:""}\n`;
+    c += `\n${f.note||""}\n`;
+    sections.push({id:fid(i), title:`${fid(i)} — ${f.title||"(untitled)"}`, content:c});
   });
+  return sections;
+}
+function buildReport(){
+  const {isVuln, kind, h} = reportHeader();
+  let m = `# BINNY ${isVuln?"VRR":"MAR"} — ${kind}\n\n`;
+  const secs = buildReportSections();
+  if(!secs.length) return m + h + "\n\n## Summary\n\n_No findings recorded yet._\n";
+  secs.forEach((s,i)=>{ m += (i===0 ? "## " : "\n### ") + `${s.title}\n\n${s.content}`; if(i===0) m += "\n## Findings\n"; });
   return m;
 }
+// On load, pick up a project the sidecar still has open (the page reloads; the
+// server doesn't), so Save to project and the chat draft keep working.
+async function loadProject(){
+  try{ const h = await api("/api/health"); setProject(h.projectId||null, h.projectName||""); }catch{}
+}
+function setProject(id, name){
+  state.projectId = id || null; state.projectName = name || "";
+  $("#saveReport").style.display = state.projectId ? "" : "none";
+}
+// The desktop's /save: push the draft sections onto the open cloud project's
+// report (DRAFT — the user reviews/publishes on the web app). Local trees have
+// no backend report, so the button is hidden and /save explains why.
+async function saveReport(){
+  if(!state.projectId){ addMsg("err","Nothing to save to: open a project from your account (Cloud, top-right) first. Local analysis has no backend report — use Download .md."); return; }
+  const sections = buildReportSections();
+  if(!sections.length){ addMsg("err","No findings recorded yet — nothing to save."); return; }
+  const btn = $("#saveReport"); btn.disabled = true; btn.textContent = "Saving…";
+  try{
+    const res = await fetch("/api/report/save",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({title:"BINNY draft — "+(state.projectName||state.projectId), sections})});
+    const out = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(out.error || ("save failed ("+res.status+")"));
+    addMsg("assistant", `Saved ${out.saved} section${out.saved===1?"":"s"} to the project report (DRAFT — review before publishing).`);
+    btn.textContent = "Saved";
+  }catch(e){ addMsg("err","Save failed: "+(e.message||e)); btn.textContent = "Save to project"; }
+  finally{ btn.disabled = false; setTimeout(()=>{ btn.textContent = "Save to project"; }, 1500); }
+}
+$("#saveReport").onclick = saveReport;
 function download(name, text){
   const blob = new Blob([text],{type:"text/markdown"}); const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
@@ -863,7 +946,9 @@ function systemPrompt(){
   const lens = state.mode==="VULN_RESEARCH"
     ? "You are BINNY in VULNERABILITY RESEARCH mode. Hunt for exploitable bugs; for each, give CWE, severity, source→sink reachability, and remediation. Be rigorous; do not invent findings."
     : "You are BINNY in MALWARE ANALYSIS mode. Identify malicious capability, IOCs, and behavior across any target (binary, APK, script, document). Classify using the STIX 2.1 malware vocabulary. Be precise and evidence-based.";
-  let s = lens + " You are a local, offline reverse-engineering assistant. Use your available tools to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note). When you produce runnable code — a decryptor/unpacker (malware) or a PoC/exploit (vuln), a YARA/Sigma rule, or a helper script — emit it with write_artifact instead of pasting long code into chat. Format replies in Markdown.";
+  // Who BINNY is (OpenBIN) and whether the analyst's project is reachable is
+  // appended server-side (chatContext), since only the backend knows that.
+  let s = lens + " You are the analyst's reverse-engineering assistant, running on their machine. Use your available tools to investigate before concluding. Pin every distinct issue with record_finding (title, severity, cwe, file, line, note). When you produce runnable code — a decryptor/unpacker (malware) or a PoC/exploit (vuln), a YARA/Sigma rule, or a helper script — emit it with write_artifact instead of pasting long code into chat. Format replies in Markdown.";
   if(state.mode==="VULN_RESEARCH" && state.focus.size) s += " Scope strictly to these vulnerability classes: "+[...state.focus].join(", ")+".";
   if(state.mode==="MALWARE" && state.focus.size) s += " Prioritize evidence of these STIX 2.1 malware types/behaviors: "+[...state.focus].join(", ")+"; for each, cite the specific strings, API calls, or code that support it.";
   if(state.openFile) s += "\n\nThe analyst is looking at `"+state.openFile.path+"`:\n```\n"+state.openFile.content.slice(0,24000)+"\n```";
@@ -935,6 +1020,7 @@ async function send(prefix){
   const ta = $("#input");
   let text = (prefix||"") + ta.value.trim();
   if(!text.trim()) return;
+  if(text.trim()==="/save"){ ta.value=""; autoSize(); saveReport(); return; }
   if(!state.model){ addMsg("err","Pick a model first (top-right). Run Ollama/LM Studio for a local one, or configure an API key."); return; }
   ta.value=""; autoSize();
   addMsg("user", text);
@@ -960,6 +1046,9 @@ async function send(prefix){
     maxTokens: state.maxTokens,
     system: systemPrompt(),
     messages: state.messages,
+    // The current draft, so the agent's save_report tool can push it when the
+    // analyst asks in chat (only meaningful with a cloud project open).
+    report: state.projectId ? {title:"BINNY draft — "+(state.projectName||state.projectId), sections:buildReportSections()} : null,
   };
   try{
     const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
@@ -983,6 +1072,8 @@ async function send(prefix){
         else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork("Thinking…"); }
         else if(ev.type==="finding"){ addFinding(ev); }
         else if(ev.type==="artifact"){ addArtifact(ev); }
+        else if(ev.type==="highlight"){ addHighlight(ev); }
+        else if(ev.type==="saved"){ const n=document.createElement("div"); n.className="work"; n.textContent="Saved "+ev.saved+" sections to the project report on OpenBIN (DRAFT — review before publishing)."; flow.appendChild(n); const b=$("#saveReport"); b.textContent="Saved"; setTimeout(()=>{ b.textContent="Save to project"; },1500); }
         else if(ev.type==="usage"){ state.tok.sess += (ev.input||0)+(ev.output||0); if(ev.context) state.tok.ctx = ev.context; updateMeter(); }
         else if(ev.type==="error"){ seg=null; const e=textSeg(); e.classList.add("errseg"); e.textContent=ev.error; }
         else if(ev.type==="done"){ if(ev.note){ const n=document.createElement("div"); n.className="work"; n.textContent="Note: "+ev.note; flow.appendChild(n); } }
@@ -1030,16 +1121,17 @@ function loadConvos(){ try{ return JSON.parse(localStorage.getItem(CONVO_KEY)||"
 function saveConvos(cs){ try{ localStorage.setItem(CONVO_KEY, JSON.stringify(cs.slice(0,MAX_CONVOS))); }catch{} }
 function convoTitle(){ const u=state.messages.find(m=>m.role==="user"); return ((u&&u.text)||"New chat").replace(/\s+/g," ").trim().slice(0,60) || "New chat"; }
 function saveConvo(){
-  if(!state.messages.length && !state.findings.length && !state.artifacts.length) return;
+  if(!state.messages.length && !state.findings.length && !state.artifacts.length && !state.highlights.length) return;
   if(!curConvo) curConvo="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   const cs=loadConvos().filter(c=>c.id!==curConvo);
-  cs.unshift({id:curConvo, title:convoTitle(), ts:Date.now(), mode:state.mode, messages:state.messages, findings:state.findings, artifacts:state.artifacts, tok:state.tok});
+  cs.unshift({id:curConvo, title:convoTitle(), ts:Date.now(), mode:state.mode, messages:state.messages, findings:state.findings, artifacts:state.artifacts, highlights:state.highlights, tok:state.tok});
   saveConvos(cs); try{ localStorage.setItem(CUR_KEY,curConvo); }catch{}
 }
 function resetConvoUI(){
   $("#convo").innerHTML = EMPTY_HTML;
   $("#findings").innerHTML='<div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div>'; findCount=0; $("#findCount").textContent="";
   $("#artifacts").innerHTML='<div class="status" style="padding:10px">No artifacts yet. Ask BINNY to write a decryptor, a PoC, or a YARA rule.</div>'; artCount=0; $("#artCount").textContent="";
+  $("#highlights").innerHTML=""; $("#highlights").style.display="none"; $("#hlHead").style.display="none";
   $("#meter").hidden=true;
 }
 function newChat(){
@@ -1051,13 +1143,14 @@ function loadConvo(id){
   saveConvo();
   const c=loadConvos().find(x=>x.id===id); if(!c) return;
   curConvo=id; try{ localStorage.setItem(CUR_KEY,id); }catch{}
-  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode;
+  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.highlights=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode;
   resetConvoUI();
   [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x.dataset.mode===state.mode)); renderFocus();
   restoring=true;
   state.messages.forEach(m=>{ const el=addMsg(m.role==="user"?"user":"assistant",""); const b=el.querySelector(".bubble"); b.style.display="block"; m.role==="user" ? b.textContent=m.text : b.innerHTML=renderMarkdown(m.text); });
   (c.findings||[]).forEach(addFinding);
   (c.artifacts||[]).forEach(addArtifact);
+  (c.highlights||[]).forEach(addHighlight);
   restoring=false;
   if(state.tok.sess) updateMeter();
   renderHistory();
@@ -1085,7 +1178,7 @@ window.addEventListener("beforeunload", saveConvo); // don't lose the current ch
 /* ---- boot ---- */
 EMPTY_HTML = $("#convo").innerHTML; // capture before any message replaces it
 setupResizers();
-renderFocus(); loadModels(); loadTree(); loadAuth(); loadBinaryPanel();
+renderFocus(); loadModels(); loadTree(); loadAuth(); loadBinaryPanel(); loadProject();
 restoreLast(); // pick up the last conversation
 </script>
 </body>

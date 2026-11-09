@@ -46,7 +46,9 @@ func TestBinaryModeToolsAndDispatch(t *testing.T) {
 	}
 
 	// record_finding is still handled by the serve agent itself (feeds the drawer).
-	out, isErr = s.runTool(context.Background(), `record_finding`, json.RawMessage(`{"title":"x","severity":"high","note":"n"}`))
+	// Binary findings must be anchored to a function (no analysis loaded here, so
+	// the name isn't checked against one).
+	out, isErr = s.runTool(context.Background(), `record_finding`, json.RawMessage(`{"title":"x","severity":"high","note":"n","function":"main"}`))
 	if isErr || out == "" {
 		t.Errorf("record_finding in binary mode = %q, err=%v", out, isErr)
 	}

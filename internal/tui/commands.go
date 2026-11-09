@@ -297,6 +297,7 @@ func helpLines() []line {
 		sysLine("answer any question it asks by typing; use /stop to cut to the draft."),
 		sysLine("Tip: type / for the command palette (↑/↓ select · Tab complete · Enter run); ↑/↓ on an empty line recalls history."),
 		sysLine("Sessions auto-save — if BINNY is interrupted, re-open the project (marked ⏵ resumable) to pick up where you left off."),
+		sysLine("GUI: `binny desktop` runs BINNY Desktop in your browser — same engine, with Explorer/Code panes, findings, highlights and the report."),
 	}
 }
 

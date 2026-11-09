@@ -11,6 +11,7 @@ package serve
 //	POST /api/auth/logout   forget stored credentials
 //	GET  /api/projects      the user's backend projects (openable = APK + ready)
 //	POST /api/project/open  SSE: fetch → download source → swap tree → {ready, root}
+//	POST /api/report/save   push {title, sections} to the open project's report
 
 import (
 	"encoding/json"
@@ -28,6 +29,9 @@ import (
 // error (not logged in) is surfaced to the UI as a prompt to sign in. A fresh
 // client per request keeps login state current without caching invalidation.
 func (s *server) authClient() (*api.Client, error) {
+	if s.newClient != nil {
+		return s.newClient()
+	}
 	toks, err := auth.NewTokenSource(s.ep)
 	if err != nil {
 		return nil, err
@@ -176,6 +180,7 @@ func (s *server) handleOpenProject(w http.ResponseWriter, r *http.Request) {
 		}
 		src := filepath.Join(dir, "src")
 		s.setDirProject(src, id)
+		s.setProjectName(p.Name)
 		root, err := buildTree(src)
 		if err != nil {
 			send(map[string]any{"type": "error", "error": err.Error()})
@@ -196,6 +201,7 @@ func (s *server) handleOpenProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.setBinaryProject(id, reg, tb)
+		s.setProjectName(p.Name)
 		send(map[string]any{"type": "ready", "kind": "BIN", "name": p.Name, "projectId": id, "summary": meta})
 
 	default:
@@ -204,6 +210,67 @@ func (s *server) handleOpenProject(w http.ResponseWriter, r *http.Request) {
 		// so they can't be opened in the desktop yet.
 		send(map[string]any{"type": "error", "error": fmt.Sprintf("%s projects can't be opened in the desktop yet", p.Kind)})
 	}
+}
+
+// handleSaveReport is the desktop's /save: it PUTs the UI-assembled draft
+// (title + sections) onto the open cloud project's report, exactly as the TUI's
+// cmdSave does. Local trees have no backend report, so there's nothing to push.
+func (s *server) handleSaveReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	pid := s.projectID()
+	if pid == "" {
+		writeErr(w, http.StatusConflict, "no cloud project open — only projects opened from your account have a report to save to")
+		return
+	}
+	client, err := s.authClient()
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error(), "loggedIn": false})
+		return
+	}
+	var req api.UpdateReportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad JSON: "+err.Error())
+		return
+	}
+	if len(req.Sections) == 0 {
+		writeErr(w, http.StatusBadRequest, "no sections to save — record a finding first")
+		return
+	}
+	rep, err := pushReport(client, pid, req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projectId": pid, "reportId": rep.ID, "saved": len(req.Sections)})
+}
+
+// pushReport PUTs a draft onto a project's report. Shared by the Save button
+// route and the agent's save_report tool so both push exactly the same thing.
+func pushReport(client *api.Client, pid string, req api.UpdateReportRequest) (*api.Report, error) {
+	if req.Title == "" {
+		req.Title = "BINNY draft"
+	}
+	return client.UpdateReport(pid, req)
+}
+
+// chatContext is appended to every chat's system prompt so the agent knows it
+// is part of OpenBIN and whether the analyst's account/project is reachable.
+// Without it the model (correctly, given what it was told) insisted it was an
+// offline tool that "can't reach openbin" when asked to push the report.
+func (s *server) chatContext() string {
+	const who = "CONTEXT: You are BINNY, the reverse-engineering assistant of OpenBIN, a defensive security-research platform used by professional malware analysts and reverse engineers. You run on the analyst's machine inside the BINNY desktop app; the analyst can sign in to their OpenBIN account and open their projects here."
+	pid := s.projectID()
+	if pid == "" {
+		return who + " RIGHT NOW the open target is a local analysis, not a project from their OpenBIN account, so there is no OpenBIN report to push to. If the analyst asks to push, save, upload or sync the report or findings to OpenBIN, their project or their account, tell them to sign in and open the project from the Cloud button (top-right), after which you will be able to push it; meanwhile the Report panel offers Download/Copy."
+	}
+	name := s.projectName()
+	if name == "" {
+		name = pid
+	}
+	return who + fmt.Sprintf(" RIGHT NOW the analyst is signed in and has their OpenBIN project %q open from their account. When they ask to push, save, upload, sync or publish the report or findings to OpenBIN, their project or their account, call the save_report tool: it pushes the current draft report (every recorded finding, rendered as sections, plus an executive summary you write) to that project's report on OpenBIN as a DRAFT they review on the web app. You CAN reach OpenBIN for this — never say you can't.", name)
 }
 
 // sseSender sets SSE headers and returns a JSON event writer, or ok=false when

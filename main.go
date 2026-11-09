@@ -37,13 +37,33 @@ func main() {
 	}
 }
 
+// usage is printed for -h/--help and bad flags: the flags, plus the one
+// subcommand (binny desktop) that flag.PrintDefaults wouldn't mention.
+func usage() {
+	fmt.Fprintf(flag.CommandLine.Output(), `BINNY — an agent harness for reverse engineering.
+
+  binny                 the terminal UI (pick a project, set a key, go)
+  binny desktop         BINNY Desktop: the same engine with a graphical UI,
+                        opened in your browser (binny desktop -h for options)
+
+Flags:
+`)
+	flag.PrintDefaults()
+}
+
 func run() error {
+	// `binny desktop` is a subcommand, not a flag, so it's read before the
+	// flag set is parsed (and so `binny desktop -h` prints its own help).
+	if len(os.Args) > 1 && os.Args[1] == "desktop" {
+		return runDesktop(os.Args[2:])
+	}
+	flag.Usage = usage
 	// --sample points BINNY at the raw sample on disk for active extraction.
 	// The bytes never leave the machine — that's why extraction fits a local
 	// agent. Optional: without it, extraction tools are simply unavailable.
 	samplePath := flag.String("sample", "", "path to the raw sample on disk (enables active extraction)")
 	showVersion := flag.Bool("version", false, "print the binny version and exit")
-	serveMode := flag.Bool("serve", false, "run as the local HTTP backend for BINNY Desktop instead of the terminal UI")
+	serveMode := flag.Bool("serve", false, "run only the local HTTP backend of BINNY Desktop (no browser; `binny desktop` is the usual way)")
 	serveAddr := flag.String("serve-addr", "127.0.0.1:8899", "address for --serve to listen on (loopback only)")
 	serveDir := flag.String("serve-dir", "", "a decompiled tree to serve in BINNY Desktop's Explorer/Code panes")
 	flag.Parse()
@@ -99,4 +119,53 @@ func run() error {
 	m.SetProgram(p) // lets the agent goroutine push streaming deltas to the UI
 	_, err = p.Run()
 	return err
+}
+
+// runDesktop is `binny desktop`: start the Desktop backend on a free loopback
+// port and open the UI in the default browser. The Electron app in desktop/
+// does exactly this with its own window; this is the no-install way to get the
+// same thing from the binary users already have.
+func runDesktop(args []string) error {
+	fs := flag.NewFlagSet("binny desktop", flag.ContinueOnError)
+	dir := fs.String("dir", "", "a decompiled tree to open in the Explorer/Code panes (optional)")
+	addr := fs.String("addr", "127.0.0.1:0", "address to listen on (loopback only; :0 picks a free port)")
+	noOpen := fs.Bool("no-open", false, "don't open the browser, just print the URL")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), `Usage: binny desktop [--dir <decompiled tree>] [--addr host:port] [--no-open]
+
+Starts BINNY Desktop and opens it in your browser: drop an APK or binary to
+analyze it locally, or sign in (Cloud) to open a project from your OpenBin /
+OpenAPK account. Same engine and models as the terminal UI. Ctrl+C stops it.
+
+`)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	cfg, _, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return serve.Run(ctx, serve.Options{
+		Addr:      *addr,
+		Version:   version,
+		Dir:       *dir,
+		Providers: cfg.Providers,
+		Endpoints: config.LoadEndpoints(),
+		OnListen: func(url string) {
+			fmt.Fprintf(os.Stderr, "\nBINNY Desktop is running at %s  (Ctrl+C to stop)\n", url)
+			if *noOpen {
+				return
+			}
+			if err := serve.OpenBrowser(url); err != nil {
+				fmt.Fprintf(os.Stderr, "couldn't open a browser (%v) — open %s yourself\n", err, url)
+			}
+		},
+	})
 }
