@@ -24,6 +24,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -37,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/config"
 	"openbin.ai/binny/internal/llm"
 	"openbin.ai/binny/internal/tools"
@@ -52,6 +54,7 @@ type Options struct {
 	Dir       string            // decompiled tree to serve (optional)
 	Providers []config.Provider // configured providers, for chat with cloud models
 	Endpoints config.Endpoints  // backend + Keycloak URLs for connected mode
+	OnListen  func(url string)  // called once the server is bound (the real port when Addr ends in :0)
 }
 
 // Run starts the HTTP server and blocks until the context is cancelled or the
@@ -79,13 +82,14 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("binny --serve: cannot bind %s: %w", opts.Addr, err)
 	}
-	log.Printf("BINNY Desktop backend on http://%s", ln.Addr())
+	url := "http://" + ln.Addr().String()
+	log.Printf("BINNY Desktop on %s", url)
 	if opts.Dir != "" {
 		log.Printf("serving decompiled tree: %s", opts.Dir)
-	} else {
-		log.Printf("no --serve-dir set: Explorer/Code panes will be empty")
 	}
-	log.Printf("open the UI in a browser at http://%s", ln.Addr())
+	if opts.OnListen != nil {
+		opts.OnListen(url)
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
@@ -107,11 +111,15 @@ type server struct {
 	opts Options
 	ep   config.Endpoints // backend + Keycloak URLs (connected mode)
 
-	mu     sync.RWMutex
-	curDir string          // the tree currently served; swappable via /api/decompile
-	curPID string          // backend project id backing curDir, if any ("" = local)
-	curReg *tools.Registry // binary-analysis tools when a BIN project is open (no tree)
-	curTB  *tools.Toolbox  // same BIN project's toolbox, for the read-only binary panel
+	mu       sync.RWMutex
+	curDir   string          // the tree currently served; swappable via /api/decompile
+	curPID   string          // backend project id backing curDir, if any ("" = local)
+	curPName string          // that project's display name (for the agent's context)
+	curReg   *tools.Registry // binary-analysis tools when a BIN project is open (no tree)
+	curTB    *tools.Toolbox  // same BIN project's toolbox, for the read-only binary panel
+
+	// newClient overrides authClient (tests point it at a fake backend).
+	newClient func() (*api.Client, error)
 }
 
 // dir returns the tree currently being served (initially --serve-dir, later
@@ -129,7 +137,7 @@ func (s *server) dir() string {
 func (s *server) setDir(d string) {
 	s.mu.Lock()
 	s.curDir = d
-	s.curPID = "" // a local tree (dropped APK / --serve-dir), not a cloud project
+	s.curPID, s.curPName = "", "" // a local tree (dropped APK / --serve-dir), not a cloud project
 	s.curReg, s.curTB = nil, nil
 	s.mu.Unlock()
 }
@@ -139,7 +147,7 @@ func (s *server) setDir(d string) {
 func (s *server) setDirProject(d, projectID string) {
 	s.mu.Lock()
 	s.curDir = d
-	s.curPID = projectID
+	s.curPID, s.curPName = projectID, ""
 	s.curReg, s.curTB = nil, nil
 	s.mu.Unlock()
 }
@@ -150,10 +158,23 @@ func (s *server) setDirProject(d, projectID string) {
 func (s *server) setBinaryProject(projectID string, reg *tools.Registry, tb *tools.Toolbox) {
 	s.mu.Lock()
 	s.curDir = ""
-	s.curPID = projectID
+	s.curPID, s.curPName = projectID, ""
 	s.curReg = reg
 	s.curTB = tb
 	s.mu.Unlock()
+}
+
+// setProjectName records the open cloud project's display name.
+func (s *server) setProjectName(name string) {
+	s.mu.Lock()
+	s.curPName = name
+	s.mu.Unlock()
+}
+
+func (s *server) projectName() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.curPName
 }
 
 // projectID returns the backend project id backing what's open, if any.
@@ -200,13 +221,14 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("/api/projects", s.handleProjects)
 	mux.HandleFunc("/api/project/open", s.handleOpenProject)
+	mux.HandleFunc("/api/report/save", s.handleSaveReport)
 	mux.HandleFunc("/api/bin/analysis", s.handleBinAnalysis)
 	mux.HandleFunc("/api/bin/function", s.handleBinFunction)
 	return withLocalCORS(mux)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID(), "binary": s.reg() != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID(), "projectName": s.projectName(), "binary": s.reg() != nil})
 }
 
 func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +282,10 @@ func (s *server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"root": root})
 }
 
+// errTreeLimit stops the walk once maxTreeFiles is reached. fs.SkipAll
+// would do this but needs Go 1.20; go.mod targets 1.18.
+var errTreeLimit = errors.New("tree file limit reached")
+
 func buildTree(rootDir string) (*fileNode, error) {
 	type item struct {
 		rel   string
@@ -273,7 +299,7 @@ func buildTree(rootDir string) (*fileNode, error) {
 			return err
 		}
 		if count++; count > maxTreeFiles {
-			return fs.SkipAll
+			return errTreeLimit
 		}
 		rel, _ := filepath.Rel(rootDir, p)
 		it := item{rel: filepath.ToSlash(rel), isDir: d.IsDir()}
@@ -285,7 +311,7 @@ func buildTree(rootDir string) (*fileNode, error) {
 		items = append(items, it)
 		return nil
 	})
-	if err != nil {
+	if err != nil && err != errTreeLimit {
 		return nil, err
 	}
 	children := map[string][]item{}
@@ -382,6 +408,9 @@ type chatRequest struct {
 		Role string `json:"role"` // "user" | "assistant"
 		Text string `json:"text"`
 	} `json:"messages"`
+	// Report is the UI's current draft (findings rendered as sections), so the
+	// agent's save_report tool can push it when the analyst asks in chat.
+	Report *api.UpdateReportRequest `json:"report"`
 }
 
 func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -439,8 +468,8 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	// With a served tree the model gets read-only tools and investigates on its
 	// own (agent.go); without one it's a plain single-turn chat.
-	s.runAgentLoop(r.Context(), provider, llm.Request{
-		System:    req.System,
+	s.runAgentLoop(withDraft(r.Context(), req.Report), provider, llm.Request{
+		System:    strings.TrimSpace(req.System + "\n\n" + s.chatContext()),
 		Messages:  msgs,
 		Tools:     s.agentTools(),
 		Model:     model,

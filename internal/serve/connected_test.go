@@ -117,6 +117,7 @@ func TestLogoutOK(t *testing.T) {
 func TestHealthReportsProject(t *testing.T) {
 	s := newConnectedServer()
 	s.setDirProject("/tmp/whatever/src", "proj-123")
+	s.setProjectName("demo.apk")
 	srv := httptest.NewServer(s.routes())
 	defer srv.Close()
 
@@ -129,8 +130,8 @@ func TestHealthReportsProject(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body["projectId"] != "proj-123" {
-		t.Errorf("projectId = %v, want proj-123", body["projectId"])
+	if body["projectId"] != "proj-123" || body["projectName"] != "demo.apk" {
+		t.Errorf("project = %v / %v, want proj-123 / demo.apk", body["projectId"], body["projectName"])
 	}
 	// setDir (a local tree) must clear the project id.
 	s.setDir("/tmp/local/src")

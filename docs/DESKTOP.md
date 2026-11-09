@@ -166,12 +166,13 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    ⏭ remaining: code-signing + macOS notarization (builds are unsigned for now;
    the env hooks are wired, just needs certs).
 
-Try the MVP:
+Try it:
 
 ```
-binny --serve --serve-dir <a decompiled tree>
-# open the printed http://127.0.0.1:8899 in a browser
+binny desktop                    # free loopback port + opens your browser
+binny desktop --dir <a decompiled tree>
 # (run Ollama/LM Studio for a zero-config local model)
+# `binny --serve --serve-addr 127.0.0.1:8899` runs the backend alone (what the Electron shell does)
 ```
 
 Honest cost of what's left: the engine needs ~no changes; phase 4 (the typed

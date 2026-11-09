@@ -407,6 +407,7 @@ func (m *Model) enterREPL() {
 	m.append(sysLine("Type what you want (e.g. \"vuln research — find buffer overflows\") then /start to direct BINNY, or /investigate for autopilot."))
 	m.append(sysLine("Mode auto-switches to VULN when your brief asks for it; /mode vuln and /focus <class> set it by hand."))
 	m.append(sysLine("During a run: Esc interrupts, /stop cuts to the draft, /findings & /draft show progress. /help for commands."))
+	m.append(sysLine("Prefer a GUI? Quit and run `binny desktop` — BINNY Desktop opens in your browser: same engine and models, with Explorer/Code panes, a Binary panel, findings, highlights and the report."))
 	m.input.Focus()
 }
 

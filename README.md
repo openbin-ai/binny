@@ -32,9 +32,23 @@ Then:
 ```sh
 openbin login   # once; BINNY reuses the openbin CLI's sign-in
 binny           # pick a project, set a key, go
+binny desktop   # or the graphical BINNY Desktop, opened in your browser
 ```
 
 Prebuilt binaries for every platform are on the [releases page](https://github.com/openbin-ai/binny/releases). Docker is needed only for `/decompile` (local Ghidra or JADX) and the sandbox tools.
+
+## BINNY Desktop
+
+The same engine with a graphical shell. `binny desktop` starts it on a loopback port and opens it in your browser; nothing else to install.
+
+```sh
+binny desktop                      # drop an APK or binary, or sign in and open a project
+binny desktop --dir ./decompiled   # start on a decompiled tree you already have
+```
+
+What's in it: an Explorer and Code pane for decompiled sources, a Binary panel (functions, strings, imports, decompiled C) for Ghidra projects, chat with the agent that shows every tool call, a Findings drawer where each finding opens the function or file it is about, Highlights, Artifacts (decryptors, PoCs, YARA rules), and a Report drawer. Sign in with the Cloud button to open a project from your OpenBin or OpenAPK account; then `Save to project` (or asking BINNY to push) writes the draft report to that project, and highlights land on its Highlights board. Local models work the same as in the terminal.
+
+A standalone app with its own window (Electron, `desktop/`) is built from the same backend; installers are attached to the `desktop-v*` releases.
 
 ## What it does
 
