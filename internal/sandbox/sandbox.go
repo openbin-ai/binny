@@ -155,7 +155,7 @@ func (s *Sandbox) Run(ctx context.Context, cmd string, timeout time.Duration) (*
 	args := []string{
 		"run", "--rm",
 		"--network", "none",
-		"--user", "65534:65534", // nobody
+		"--user", sandboxUser(), // the host user, so a 0600 sample it owns is readable (see below)
 		"--read-only",
 		"--security-opt", "no-new-privileges",
 		"--cap-drop", "ALL",
@@ -188,6 +188,22 @@ func (s *Sandbox) Run(ctx context.Context, cmd string, timeout time.Duration) (*
 		return nil, fmt.Errorf("docker run: %w (stderr: %s)", err, Abbrev(stderr.String(), 200))
 	}
 	return res, nil
+}
+
+// sandboxUser picks the uid:gid the container runs as. We use the HOST user's
+// own ids rather than a fixed "nobody" so the container can read the sample the
+// analyst attached — their own files are typically 0600, which nobody (65534)
+// could not read, and an in-place /sample mount can't be chmod'd. The container
+// stays hardened either way (--network none, --cap-drop ALL, --read-only,
+// no-new-privileges); a non-root host uid is no less safe than nobody for a
+// local, single-user tool reading a sample as data. Falls back to nobody where
+// there is no meaningful uid (e.g. Windows, where Getuid returns -1).
+func sandboxUser() string {
+	uid, gid := os.Getuid(), os.Getgid()
+	if uid < 0 || gid < 0 {
+		return "65534:65534"
+	}
+	return fmt.Sprintf("%d:%d", uid, gid)
 }
 
 // SampleSHA256 returns the sample's hash (for provenance).

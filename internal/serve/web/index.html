@@ -332,6 +332,7 @@ const state = {
   model: null,        // {label, baseURL?, providerId?, model}
   openFile: null,     // {path, content}
   messages: [],       // {role, text}
+  ctxReset: true,     // next send rebuilds the server-side transcript (fresh/loaded convo, or post-compact)
   findings: [],       // {title, severity, cwe, file, line, reachability, note}
   streaming: false,
   bin: null,          // binary analysis for the panel (null until loaded)
@@ -473,6 +474,7 @@ async function compactChat(){
   if(!sum){ setCompactNote("Compact produced nothing — try again."); return; }
   const before=state.messages.length;
   state.messages=[{role:"user", text:"[Earlier conversation — compacted summary]\n"+sum}];
+  state.ctxReset=true; // drop the server's full transcript; resume from the summary
   state.tok.ctx=0; updateMeter();
   const b=addMsg("assistant","").querySelector(".bubble"); b.style.display="block";
   b.innerHTML=renderMarkdown("**Context compacted** — summarized "+before+" messages. The transcript above stays; BINNY now carries this brief forward:\n\n"+sum);
@@ -1063,6 +1065,11 @@ async function send(prefix){
   ta.value=""; autoSize();
   addMsg("user", text);
   state.messages.push({role:"user", text});
+  // Stable id so the server can keep the full transcript (tool turns included)
+  // across turns; resetContext tells it to rebuild from scratch on a fresh/loaded
+  // conversation or after a compaction.
+  if(!curConvo) curConvo="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const resetContext = state.ctxReset || state.messages.length<=1;
 
   // The assistant turn is an ordered FLOW: text segments and tool cards in the
   // order they happen, plus a live status line so it never looks frozen.
@@ -1087,6 +1094,8 @@ async function send(prefix){
     // The current draft, so the agent's save_report tool can push it when the
     // analyst asks in chat (only meaningful with a cloud project open).
     report: state.projectId ? {title:"BINNY draft — "+(state.projectName||state.projectId), sections:buildReportSections()} : null,
+    conversationId: curConvo,
+    resetContext,
   };
   try{
     const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
@@ -1108,6 +1117,7 @@ async function send(prefix){
         if(ev.type==="chunk"){ if(!seg){ seg=textSeg(); segAcc=""; } segAcc+=ev.text; fullAcc+=ev.text; seg.innerHTML=renderMarkdown(segAcc); setWork("Writing…"); }
         else if(ev.type==="tool_call"){ seg=null; pendingCard=addToolCard(flow, ev.name, ev.input); setWork("Running "+ev.name+"…"); }
         else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork("Thinking…"); }
+        else if(ev.type==="status"){ setWork(ev.text||"Working…"); if(pendingCard){ pendingCard.querySelector(".body").textContent=ev.text||""; } }
         else if(ev.type==="finding"){ addFinding(ev); }
         else if(ev.type==="artifact"){ addArtifact(ev); }
         else if(ev.type==="highlight"){ addHighlight(ev); }
@@ -1122,6 +1132,7 @@ async function send(prefix){
     else if(!flow.querySelector(".tool-card") && !flow.querySelector(".errseg")){ const e=textSeg(); e.className="status"; e.textContent="BINNY returned an empty response. Try asking again or rephrasing; if the context is large, use Settings → Compact and retry."; }
   }catch(e){ setWork(null); const er=textSeg(); er.classList.add("errseg"); er.textContent=String(e); }
   state.streaming=false; $("#send").disabled=$("#investigate").disabled=false;
+  state.ctxReset=false; // server now holds this conversation's transcript; keep resuming it
   saveConvo(); // persist so the conversation survives a reload
 }
 
@@ -1174,14 +1185,14 @@ function resetConvoUI(){
 }
 function newChat(){
   saveConvo(); curConvo=null; try{ localStorage.removeItem(CUR_KEY); }catch{}
-  state.messages=[]; state.findings=[]; state.artifacts=[]; state.tok={ctx:0,sess:0};
+  state.messages=[]; state.findings=[]; state.artifacts=[]; state.tok={ctx:0,sess:0}; state.ctxReset=true;
   resetConvoUI(); renderHistory();
 }
 function loadConvo(id){
   saveConvo();
   const c=loadConvos().find(x=>x.id===id); if(!c) return;
   curConvo=id; try{ localStorage.setItem(CUR_KEY,id); }catch{}
-  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.highlights=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode;
+  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.highlights=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode; state.ctxReset=true;
   resetConvoUI();
   [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x.dataset.mode===state.mode)); renderFocus();
   restoring=true;

@@ -80,7 +80,11 @@ func (s *server) sampleTools() *tools.Registry {
 		}
 		reg := tools.NewRegistry()
 		agent.RegisterSampleTooling(reg, &app.Session{Project: proj, SamplePath: s.curSample}, s.curTB,
-			func(format string, args ...any) { log.Printf("decompile_sample: "+format, args...) })
+			func(format string, args ...any) {
+				line := fmt.Sprintf(format, args...)
+				log.Printf("decompile_sample: %s", line)
+				s.emitProgress(line) // keep the chat's SSE stream alive during the minutes-long run
+			})
 		s.curXReg = reg
 	}
 	return s.curXReg
