@@ -25,6 +25,7 @@ import (
 	"openbin.ai/binny/internal/config"
 	"openbin.ai/binny/internal/serve"
 	"openbin.ai/binny/internal/tui"
+	"openbin.ai/binny/internal/update"
 )
 
 // version is stamped by the release workflow via -ldflags "-X main.version=...".
@@ -45,10 +46,36 @@ func usage() {
   binny                 the terminal UI (pick a project, set a key, go)
   binny desktop         BINNY Desktop: the same engine with a graphical UI,
                         opened in your browser (binny desktop -h for options)
+  binny update          update binny in place to the latest release
+                        (--check to only report, --force to reinstall)
 
 Flags:
 `)
 	flag.PrintDefaults()
+}
+
+// runUpdate is `binny update`: replace this binary with the latest release.
+func runUpdate(args []string) error {
+	fs := flag.NewFlagSet("binny update", flag.ContinueOnError)
+	check := fs.Bool("check", false, "only report the installed and latest versions; don't install")
+	force := fs.Bool("force", false, "reinstall even if already on the latest version")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), `Usage: binny update [--check] [--force]
+
+Updates binny in place to the latest published release — the same build the
+website installer fetches — so you don't have to re-run the installer. Replaces
+the running binary; set BINNY_RELEASE_BASE to pull from a different release.
+
+`)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	return update.Run(update.Options{Current: version, Check: *check, Force: *force})
 }
 
 func run() error {
@@ -56,6 +83,9 @@ func run() error {
 	// flag set is parsed (and so `binny desktop -h` prints its own help).
 	if len(os.Args) > 1 && os.Args[1] == "desktop" {
 		return runDesktop(os.Args[2:])
+	}
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		return runUpdate(os.Args[2:])
 	}
 	flag.Usage = usage
 	// --sample points BINNY at the raw sample on disk for active extraction.
