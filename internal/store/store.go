@@ -9,6 +9,7 @@
 //	analyses/<sha256>/src/              — that tree, extracted (APK)
 //	analyses/<sha256>/meta.json         — Meta (name, sample path, language…)
 //	analyses/<sha256>/report.md         — /save target for local projects
+//	analyses/<sha256>/sample/<name>     — the raw file, kept by BINNY Desktop for extraction
 //	analyses/remote/<projectID>.json.gz — read-through cache of backend blobs
 //	analyses/remote-trees/<projectID>/  — cached source tree of a backend APK project (src/ + etag)
 //	workspaces/<name>/                  — persistent extraction workspaces
@@ -117,6 +118,46 @@ func SaveMeta(meta Meta) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "meta.json"), mj, 0o644)
+}
+
+// SaveSample copies the raw sample at src into the store as
+// analyses/<sha>/sample/<name> and returns that path. The desktop receives
+// files as uploads into a temp dir; this is the copy that outlives the request
+// so the extraction sandbox can mount it later.
+func SaveSample(sha, name, src string) (string, error) {
+	dir, err := analysisDir(sha)
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(dir, "sample")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(dir, sanitize(filepath.Base(name)))
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	if si, err := in.Stat(); err == nil {
+		if di, err := os.Stat(dst); err == nil && di.Size() == si.Size() {
+			return dst, nil // same hash dir, same size: already kept
+		}
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return "", err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(dst)
+		return "", err
+	}
+	return dst, nil
 }
 
 // TreeTarball is where an APK's JADX tarball is kept (the exact bytes the

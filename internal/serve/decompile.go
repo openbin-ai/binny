@@ -136,6 +136,10 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setDir(res.SrcDir)
+	// Keep the APK itself: the sandbox unzips it for assets/, res/raw/, lib/.
+	if _, err := s.keepSample(res.Sha, hdr.Filename, tmpPath); err != nil {
+		logf("Couldn't keep the APK for extraction (%v) — attach it later with Attach sample.", err)
+	}
 	root, err := buildTree(res.SrcDir)
 	if err != nil {
 		send(map[string]any{"type": "error", "error": err.Error()})

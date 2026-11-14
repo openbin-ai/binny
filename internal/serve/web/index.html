@@ -231,6 +231,8 @@
   <button id="cloudBtn" title="Sign in and open one of your cloud projects">Cloud</button>
   <button id="openApk" title="Analyze a local file — a binary (.exe/.elf/Mach-O) or an APK">Open</button>
   <input type="file" id="apkInput" style="display:none">
+  <button id="sampleBtn" style="display:none" title="Attach the raw file for this target so BINNY can run tools against the real bytes (strings, readelf, decryptors)">Attach sample</button>
+  <input type="file" id="sampleInput" style="display:none">
   <select id="modelPick" title="model"></select>
   <button id="tExplorer">Explorer</button>
   <button id="tCode">Code</button>
@@ -705,6 +707,7 @@ async function openProject(p){
       else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="ready"){
         setProject(ev.projectId||p.id, ev.name||p.name||"");
+        refreshSample();
         if(ev.kind==="BIN"){
           bubble.textContent = "Opened "+(p.name||p.id)+" (binary). No source tree — BINNY analyzes it with Ghidra-backed tools. Ask about its functions, strings, imports, or behavior below.";
           if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
@@ -774,6 +777,7 @@ async function analyze(file, processor){
         if(ev.summary){ const pre=document.createElement("pre"); pre.className="code"; pre.style.cssText="margin-top:8px;padding:8px;white-space:pre-wrap"; pre.textContent=ev.summary; bubble.appendChild(pre); }
         setTreeNote("No file tree — "+(ev.name||"this")+" is a binary. Ask BINNY in chat; it reads the Ghidra analysis directly.");
         if(typeof loadBinaryPanel==="function") loadBinaryPanel();
+        refreshSample();
       }
     });
   }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
@@ -801,6 +805,7 @@ async function decompile(file){
         else if(ev.type==="ready"){
           setProject(null, "");
           bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
+          refreshSample();
           clearBinaryPanel();
           await loadTree();
           if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
@@ -909,8 +914,39 @@ function buildReport(){
 // On load, pick up a project the sidecar still has open (the page reloads; the
 // server doesn't), so Save to project and the chat draft keep working.
 async function loadProject(){
-  try{ const h = await api("/api/health"); setProject(h.projectId||null, h.projectName||""); }catch{}
+  try{ const h = await api("/api/health"); setProject(h.projectId||null, h.projectName||""); showSample(h.sample, h.hasDir||h.binary); }catch{}
 }
+
+/* ---- raw sample (what the agent's sandbox tools read at /sample) ---- */
+function showSample(sm, hasTarget){
+  const b = $("#sampleBtn");
+  b.style.display = hasTarget ? "" : "none";
+  const on = !!(sm && sm.attached);
+  b.classList.toggle("on", on);
+  b.textContent = on ? "Sample: "+(sm.name.length>22 ? sm.name.slice(0,21)+"…" : sm.name) : "Attach sample";
+  b.title = on ? (sm.path||sm.name)+" — attached; BINNY can run tools against it. Click to replace."
+               : "Attach the raw file for this target so BINNY can run tools against the real bytes (strings, readelf, decryptors)";
+}
+async function refreshSample(){
+  try{ const h = await api("/api/health"); showSample(h.sample, h.hasDir||h.binary); }catch{}
+}
+// Attach by upload (a File from the picker) or in place (a path on this machine).
+async function attachSample(src){
+  const note = addMsg("assistant", "Attaching "+(typeof src==="string" ? src : src.name)+"…");
+  const bubble = note.querySelector(".bubble");
+  try{
+    let opts;
+    if(typeof src==="string") opts = {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:src})};
+    else { const fd = new FormData(); fd.append("file", src); opts = {method:"POST", body:fd}; }
+    const res = await fetch("/api/sample", opts);
+    const j = await res.json().catch(()=>({}));
+    if(!res.ok){ note.className="msg err"; bubble.textContent = j.error || ("Attach failed ("+res.status+")."); return; }
+    bubble.textContent = "Sample attached: "+j.name+(j.size!=null ? " ("+j.size+" bytes)" : "")+". BINNY can now run tools against the raw file — ask it to continue.";
+    refreshSample();
+  }catch(e){ note.className="msg err"; bubble.textContent = String(e); }
+}
+$("#sampleBtn").onclick = ()=>$("#sampleInput").click();
+$("#sampleInput").onchange = e=>{ const f=e.target.files[0]; e.target.value=""; if(f) attachSample(f); };
 function setProject(id, name){
   state.projectId = id || null; state.projectName = name || "";
   $("#saveReport").style.display = state.projectId ? "" : "none";
@@ -1021,6 +1057,8 @@ async function send(prefix){
   let text = (prefix||"") + ta.value.trim();
   if(!text.trim()) return;
   if(text.trim()==="/save"){ ta.value=""; autoSize(); saveReport(); return; }
+  const sm = text.trim().match(/^\/sample(?:\s+([\s\S]+))?$/);
+  if(sm){ ta.value=""; autoSize(); sm[1] ? attachSample(sm[1].trim()) : $("#sampleInput").click(); return; }
   if(!state.model){ addMsg("err","Pick a model first (top-right). Run Ollama/LM Studio for a local one, or configure an API key."); return; }
   ta.value=""; autoSize();
   addMsg("user", text);

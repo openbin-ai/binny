@@ -209,5 +209,14 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setBinaryProject(project.ID, reg, tb)
+	s.setTargetProject(project)
+	// The upload lives in a temp dir removed when this request ends; keep a copy
+	// so the agent's sandbox tools can read the raw bytes for the whole session.
+	if p, err := s.keepSample(meta.Sha256, hdr.Filename, tmpPath); err != nil {
+		logf("Couldn't keep the raw sample for extraction (%v) — attach it later with Attach sample.", err)
+	} else {
+		meta.SamplePath = p
+		_ = store.SaveMeta(meta)
+	}
 	send(map[string]any{"type": "ready", "kind": "BIN", "name": meta.Name, "projectId": project.ID, "summary": summary})
 }

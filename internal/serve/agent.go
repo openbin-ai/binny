@@ -288,6 +288,9 @@ func (s *server) agentTools() []llm.Tool {
 	if s.projectID() != "" {
 		base = append(base, saveReportTool())
 	}
+	if x := s.sampleTools(); x != nil {
+		base = append(base, x.Defs()...) // sandbox over the raw sample (sample.go)
+	}
 	if reg := s.reg(); reg != nil {
 		return append(base, reg.Defs()...) // binary mode: the real BIN toolbox
 	}
@@ -349,6 +352,9 @@ func (s *server) runTool(ctx context.Context, name string, input json.RawMessage
 	if name == "save_report" {
 		out, _, isErr := s.toolSaveReport(ctx, input)
 		return out, isErr
+	}
+	if x := s.sampleTools(); x != nil && x.Has(name) {
+		return x.Run(ctx, name, input)
 	}
 	if reg := s.reg(); reg != nil {
 		if reg.Has(name) {
