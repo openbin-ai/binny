@@ -14,6 +14,7 @@
 //   - GET  /api/local-models     detected local inference servers + models
 //   - GET  /api/files            the decompiled tree (from --serve-dir)
 //   - GET  /api/file?path=       one file's content
+//   - GET/POST /api/sample       the raw sample attached for extraction (sample.go)
 //   - POST /api/chat             streaming chat (SSE), local or configured model
 //
 // The full staged investigation engine (triage→…→review, structured findings,
@@ -118,6 +119,10 @@ type server struct {
 	curReg   *tools.Registry // binary-analysis tools when a BIN project is open (no tree)
 	curTB    *tools.Toolbox  // same BIN project's toolbox, for the read-only binary panel
 
+	curProj   *api.Project    // the project behind the open target, when known (sample.go)
+	curSample string          // host path of the attached raw sample ("" = none)
+	curXReg   *tools.Registry // sandbox/decompile tools over curSample; nil = rebuild on use
+
 	// newClient overrides authClient (tests point it at a fake backend).
 	newClient func() (*api.Client, error)
 }
@@ -139,6 +144,7 @@ func (s *server) setDir(d string) {
 	s.curDir = d
 	s.curPID, s.curPName = "", "" // a local tree (dropped APK / --serve-dir), not a cloud project
 	s.curReg, s.curTB = nil, nil
+	s.curProj, s.curSample, s.curXReg = nil, "", nil // a new target starts without a sample
 	s.mu.Unlock()
 }
 
@@ -149,6 +155,7 @@ func (s *server) setDirProject(d, projectID string) {
 	s.curDir = d
 	s.curPID, s.curPName = projectID, ""
 	s.curReg, s.curTB = nil, nil
+	s.curProj, s.curSample, s.curXReg = nil, "", nil // a new target starts without a sample
 	s.mu.Unlock()
 }
 
@@ -161,6 +168,7 @@ func (s *server) setBinaryProject(projectID string, reg *tools.Registry, tb *too
 	s.curPID, s.curPName = projectID, ""
 	s.curReg = reg
 	s.curTB = tb
+	s.curProj, s.curSample, s.curXReg = nil, "", nil // a new target starts without a sample
 	s.mu.Unlock()
 }
 
@@ -213,6 +221,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/file", s.handleFile)
 	mux.HandleFunc("/api/decompile", s.handleDecompile)
 	mux.HandleFunc("/api/analyze", s.handleAnalyze)
+	mux.HandleFunc("/api/sample", s.handleSample)
 	mux.HandleFunc("/api/chat", s.handleChat)
 
 	// Connected mode: log in to the openbin backend and open a cloud project.
@@ -228,7 +237,7 @@ func (s *server) routes() http.Handler {
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID(), "projectName": s.projectName(), "binary": s.reg() != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hasDir": s.dir() != "", "projectId": s.projectID(), "projectName": s.projectName(), "binary": s.reg() != nil, "sample": s.sampleStatus()})
 }
 
 func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {

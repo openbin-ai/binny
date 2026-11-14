@@ -148,7 +148,13 @@ CVE reports). The Go engine is "terminal BINNY," the real one.
    sha256 in the local store, so re-dropping is instant; the served dir is now
    runtime-swappable (`internal/serve/decompile.go`). ✅ binary/Ghidra path too —
    ＋ Open takes any file; binaries go to `POST /api/analyze` (Ghidra) and open in
-   chat mode (`internal/serve/binary.go`); see §8.5.
+   chat mode (`internal/serve/binary.go`); see §8.5. ✅ The opened file is kept
+   as the session's **raw sample** (`analyses/<sha>/sample/`), and the chat
+   agent gets the extraction sandbox over it (`run` / `write_file` /
+   `read_artifact`, plus `decompile_sample` on binaries). Cloud projects have no
+   local file, so the top bar has **Attach sample** (upload) and the chat box
+   takes `/sample <path>` (used in place) — `POST /api/sample`,
+   `internal/serve/sample.go`.
 7. 🟡 **Findings + report drawers**, inline code cards. Findings: ✅ — a
    `record_finding` tool pins structured findings (title/severity/CWE/file:line/
    reachability/note) that stream as `finding` SSE events into a severity-sorted

@@ -261,7 +261,8 @@ func pushReport(client *api.Client, pid string, req api.UpdateReportRequest) (*a
 // Without it the model (correctly, given what it was told) insisted it was an
 // offline tool that "can't reach openbin" when asked to push the report.
 func (s *server) chatContext() string {
-	const who = "CONTEXT: You are BINNY, the reverse-engineering assistant of OpenBIN, a defensive security-research platform used by professional malware analysts and reverse engineers. You run on the analyst's machine inside the BINNY desktop app; the analyst can sign in to their OpenBIN account and open their projects here."
+	who := "CONTEXT: You are BINNY, the reverse-engineering assistant of OpenBIN, a defensive security-research platform used by professional malware analysts and reverse engineers. You run on the analyst's machine inside the BINNY desktop app; the analyst can sign in to their OpenBIN account and open their projects here."
+	who += s.sampleContext()
 	pid := s.projectID()
 	if pid == "" {
 		return who + " RIGHT NOW the open target is a local analysis, not a project from their OpenBIN account, so there is no OpenBIN report to push to. If the analyst asks to push, save, upload or sync the report or findings to OpenBIN, their project or their account, tell them to sign in and open the project from the Cloud button (top-right), after which you will be able to push it; meanwhile the Report panel offers Download/Copy."
