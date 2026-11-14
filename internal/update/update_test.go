@@ -95,11 +95,11 @@ func TestCompareVersions(t *testing.T) {
 		{"v0.1.0-beta.7", "v0.1.0-beta.6", 1, true},
 		{"v0.1.0-beta.6", "v0.1.0-beta.7", -1, true},
 		{"v0.1.0-beta.6", "v0.1.0-beta.6", 0, true},
-		{"v0.1.0", "v0.1.0-beta.9", 1, true},   // stable beats prerelease
-		{"v0.2.0-beta.1", "v0.1.0", 1, true},   // minor bump wins
+		{"v0.1.0", "v0.1.0-beta.9", 1, true}, // stable beats prerelease
+		{"v0.2.0-beta.1", "v0.1.0", 1, true}, // minor bump wins
 		{"v1.0.0", "v0.9.9", 1, true},
 		{"binny v0.1.0-beta.6", "0.1.0-beta.6", 0, true},
-		{"dev", "v0.1.0-beta.6", 0, false},     // unparseable
+		{"dev", "v0.1.0-beta.6", 0, false}, // unparseable
 	}
 	for _, c := range cases {
 		got, ok := compareVersions(c.a, c.b)
