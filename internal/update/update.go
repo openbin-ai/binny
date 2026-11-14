@@ -15,7 +15,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -78,18 +80,34 @@ func Run(opts Options) error {
 	}
 	fmt.Fprintf(out, "installed: %s\nlatest:    %s\n", cur, latest)
 
-	upToDate := normalize(cur) == normalize(latest)
+	// cmp: +1 latest is newer, 0 same, -1 latest is older; ok=false when either
+	// version can't be parsed (e.g. a "dev" build) — then we fall back to a
+	// plain equality check and only act on --force.
+	cmp, ok := compareVersions(latest, cur)
 	if opts.Check {
-		if upToDate {
-			fmt.Fprintln(out, "binny is up to date.")
-		} else {
+		switch {
+		case ok && cmp > 0:
 			fmt.Fprintln(out, "an update is available — run `binny update` to install it.")
+		case ok && cmp < 0:
+			fmt.Fprintln(out, "your binny is newer than the latest release (a dev build).")
+		case ok:
+			fmt.Fprintln(out, "binny is up to date.")
+		case normalize(cur) == normalize(latest):
+			fmt.Fprintln(out, "binny is up to date.")
+		default:
+			fmt.Fprintln(out, "a different release is available — run `binny update` to install it.")
 		}
 		return nil
 	}
-	if upToDate && !opts.Force {
-		fmt.Fprintln(out, "already up to date (use --force to reinstall).")
-		return nil
+	if !opts.Force {
+		if ok && cmp < 0 {
+			fmt.Fprintln(out, "your binny is newer than the latest release — not downgrading (use --force to install it anyway).")
+			return nil
+		}
+		if (ok && cmp == 0) || (!ok && normalize(cur) == normalize(latest)) {
+			fmt.Fprintln(out, "already up to date (use --force to reinstall).")
+			return nil
+		}
 	}
 
 	exe, err := os.Executable()
@@ -267,3 +285,68 @@ func replace(exe, staged string) error {
 func normalize(v string) string {
 	return strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(v, "binny ")), "v")
 }
+
+// compareVersions compares two versions of the form X.Y.Z or X.Y.Z-beta.N
+// (with an optional leading "v" / "binny "). It returns +1 if a > b, -1 if
+// a < b, 0 if equal, and ok=false when either can't be parsed. A release with
+// NO prerelease outranks one with a prerelease (1.0.0 > 1.0.0-beta.9); between
+// two prereleases the numeric suffix decides (beta.7 > beta.6). This keeps
+// `binny update` from downgrading, e.g. a local dev build onto an older tag.
+func compareVersions(a, b string) (int, bool) {
+	ra, oka := parseVersion(a)
+	rb, okb := parseVersion(b)
+	if !oka || !okb {
+		return 0, false
+	}
+	for i := 0; i < 3; i++ {
+		if ra.nums[i] != rb.nums[i] {
+			return sign(ra.nums[i] - rb.nums[i]), true
+		}
+	}
+	// Equal core: a stable release (no prerelease) is greater than a prerelease.
+	if ra.pre != rb.pre {
+		if ra.pre == 0 { // a is stable, b is prerelease
+			return 1, true
+		}
+		if rb.pre == 0 {
+			return -1, true
+		}
+		return sign(ra.pre - rb.pre), true
+	}
+	return 0, true
+}
+
+type parsedVersion struct {
+	nums [3]int // major, minor, patch
+	pre  int    // prerelease number (e.g. beta.N); 0 means "no prerelease" (stable)
+}
+
+var versionRe = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z]+\.(\d+))?$`)
+
+func parseVersion(v string) (parsedVersion, bool) {
+	m := versionRe.FindStringSubmatch(normalize(v))
+	if m == nil {
+		return parsedVersion{}, false
+	}
+	var p parsedVersion
+	for i := 0; i < 3; i++ {
+		p.nums[i] = atoi(m[i+1])
+	}
+	if m[4] != "" {
+		p.pre = atoi(m[4]) // a real prerelease: beta.N with N>=1 (tags start at beta.1)
+	}
+	return p, true
+}
+
+func sign(n int) int {
+	if n > 0 {
+		return 1
+	}
+	if n < 0 {
+		return -1
+	}
+	return 0
+}
+
+// atoi parses a non-negative integer that the version regex already validated.
+func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
