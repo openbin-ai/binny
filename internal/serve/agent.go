@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/llm"
@@ -123,6 +124,93 @@ func draftFrom(ctx context.Context) *api.UpdateReportRequest {
 	return d
 }
 
+// findingsAccum collects the findings recorded during THIS turn. The draft the
+// client sends is a snapshot taken before the turn ran, so a finding recorded
+// and then saved in the same turn wouldn't be in it; save_report merges these in
+// so "record_finding … then save_report" works without a round-trip.
+type findingsAccum struct {
+	mu       sync.Mutex
+	sections []api.ReportSection
+}
+
+type findingsKey struct{}
+
+func withFindings(ctx context.Context, a *findingsAccum) context.Context {
+	return context.WithValue(ctx, findingsKey{}, a)
+}
+
+func findingsFrom(ctx context.Context) *findingsAccum {
+	a, _ := ctx.Value(findingsKey{}).(*findingsAccum)
+	return a
+}
+
+// add renders one recorded finding into a report section and stores it.
+func (a *findingsAccum) add(input json.RawMessage) {
+	if a == nil {
+		return
+	}
+	var f struct {
+		Title, Severity, CWE, Function, File, Reachability, Note string
+		Line                                                     int
+	}
+	if json.Unmarshal(input, &f) != nil || f.Title == "" {
+		return
+	}
+	var c strings.Builder
+	fmt.Fprintf(&c, "- Severity: %s\n", strings.ToUpper(orText(f.Severity, "info")))
+	if f.CWE != "" {
+		fmt.Fprintf(&c, "- CWE: %s\n", f.CWE)
+	}
+	if f.Reachability != "" {
+		fmt.Fprintf(&c, "- Reachability: %s\n", f.Reachability)
+	}
+	if f.Function != "" {
+		fmt.Fprintf(&c, "- Function: %s\n", f.Function)
+	}
+	if f.File != "" {
+		loc := f.File
+		if f.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", f.File, f.Line)
+		}
+		fmt.Fprintf(&c, "- Location: %s\n", loc)
+	}
+	fmt.Fprintf(&c, "\n%s\n", f.Note)
+	a.mu.Lock()
+	a.sections = append(a.sections, api.ReportSection{ID: "finding-" + fmt.Sprint(len(a.sections)+1), Title: f.Title, Content: c.String()})
+	a.mu.Unlock()
+}
+
+// merged returns this turn's finding sections that the draft doesn't already
+// cover (matched loosely by the finding title appearing in a draft section's).
+func (a *findingsAccum) merged(existing []api.ReportSection) []api.ReportSection {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var out []api.ReportSection
+	for _, f := range a.sections {
+		dup := false
+		for _, e := range existing {
+			if strings.Contains(strings.ToLower(e.Title), strings.ToLower(f.Title)) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func orText(s, fallback string) string {
+	if strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	return s
+}
+
 // toolSaveReport pushes the request's draft (plus the model's summary) to the
 // open project's report. Returns the backend result for the model and the
 // section count for the UI's "saved" event (0 on failure).
@@ -132,7 +220,16 @@ func (s *server) toolSaveReport(ctx context.Context, input json.RawMessage) (str
 		return "no OpenBIN project is open — ask the analyst to open one from their account (Cloud button) first", 0, true
 	}
 	draft := draftFrom(ctx)
-	if draft == nil || len(draft.Sections) == 0 {
+	// Start from the client's snapshot draft, then fold in any findings recorded
+	// during THIS turn (the snapshot predates them) so same-turn record+save works.
+	var sections []api.ReportSection
+	title := ""
+	if draft != nil {
+		sections = append(sections, draft.Sections...)
+		title = draft.Title
+	}
+	sections = append(sections, findingsFrom(ctx).merged(sections)...)
+	if len(sections) == 0 {
 		return "the draft is empty — pin each issue with record_finding first, then save_report", 0, true
 	}
 	client, err := s.authClient()
@@ -141,11 +238,11 @@ func (s *server) toolSaveReport(ctx context.Context, input json.RawMessage) (str
 	}
 	var in struct{ Summary string }
 	_ = json.Unmarshal(input, &in)
-	req := api.UpdateReportRequest{Title: draft.Title}
+	req := api.UpdateReportRequest{Title: title}
 	if sum := strings.TrimSpace(in.Summary); sum != "" {
 		req.Sections = append(req.Sections, api.ReportSection{ID: "executive-summary", Title: "Executive summary", Content: sum})
 	}
-	req.Sections = append(req.Sections, draft.Sections...)
+	req.Sections = append(req.Sections, sections...)
 	if req.Title == "" {
 		req.Title = "BINNY draft — " + s.projectName()
 	}
@@ -333,6 +430,7 @@ func (s *server) runTool(ctx context.Context, name string, input json.RawMessage
 		if _, msg := s.checkFinding(input); msg != "" {
 			return msg, true
 		}
+		findingsFrom(ctx).add(input) // so save_report can see it later this same turn
 		var in struct{ Title, Severity string }
 		_ = json.Unmarshal(input, &in)
 		return "recorded [" + in.Severity + "] " + in.Title, false
