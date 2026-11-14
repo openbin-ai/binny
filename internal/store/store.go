@@ -144,7 +144,9 @@ func SaveSample(sha, name, src string) (string, error) {
 			return dst, nil // same hash dir, same size: already kept
 		}
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// 0o644: the extraction sandbox mounts this read-only and reads it as a
+	// different (unprivileged) user, so it must be world-readable.
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return "", err
 	}

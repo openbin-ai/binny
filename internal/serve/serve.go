@@ -123,8 +123,72 @@ type server struct {
 	curSample string          // host path of the attached raw sample ("" = none)
 	curXReg   *tools.Registry // sandbox/decompile tools over curSample; nil = rebuild on use
 
+	// progress is the active chat's SSE progress sink (set for the duration of a
+	// request), so a minutes-long tool like decompile_sample can stream status
+	// and keep the HTTP response body alive — an idle stream gets severed and
+	// the browser throws "TypeError: Error in input stream".
+	progress func(string)
+
+	// convos is the full per-conversation transcript (text + tool_use +
+	// tool_result turns), keyed by the client's conversationId. The web UI only
+	// persists plain text turns, so without this every new message replayed the
+	// investigation from scratch; here "continue" resumes with the tools it
+	// already ran. Memory-only: lost on restart (the client then rebuilds from
+	// its saved text).
+	convos map[string][]llm.Message
+
 	// newClient overrides authClient (tests point it at a fake backend).
 	newClient func() (*api.Client, error)
+}
+
+// setProgress installs (fn) or clears (nil) the active chat's progress sink.
+func (s *server) setProgress(fn func(string)) {
+	s.mu.Lock()
+	s.progress = fn
+	s.mu.Unlock()
+}
+
+// emitProgress forwards a line to the active chat's progress sink, if any. Used
+// by long-running tools (decompile_sample) so the browser keeps seeing traffic.
+func (s *server) emitProgress(line string) {
+	s.mu.RLock()
+	fn := s.progress
+	s.mu.RUnlock()
+	if fn != nil {
+		fn(line)
+	}
+}
+
+const maxConvos = 64 // cap on remembered conversations (local, single-user)
+
+// loadConvo returns the stored transcript for a conversation id (nil if none).
+func (s *server) loadConvo(id string) []llm.Message {
+	if id == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.convos[id]
+}
+
+// storeConvo saves the full transcript for a conversation id, evicting the
+// oldest-by-insertion when the cap is exceeded.
+func (s *server) storeConvo(id string, msgs []llm.Message) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.convos == nil {
+		s.convos = map[string][]llm.Message{}
+	}
+	if _, exists := s.convos[id]; !exists && len(s.convos) >= maxConvos {
+		for k := range s.convos { // Go map order is random — good enough for a cap
+			delete(s.convos, k)
+			break
+		}
+	}
+	s.convos[id] = msgs
 }
 
 // dir returns the tree currently being served (initially --serve-dir, later
@@ -420,6 +484,13 @@ type chatRequest struct {
 	// Report is the UI's current draft (findings rendered as sections), so the
 	// agent's save_report tool can push it when the analyst asks in chat.
 	Report *api.UpdateReportRequest `json:"report"`
+	// ConversationID lets the server keep the full transcript (tool turns
+	// included) across requests, so "continue" resumes instead of restarting.
+	ConversationID string `json:"conversationId"`
+	// ResetContext tells the server to discard any remembered transcript for this
+	// conversation and rebuild from Messages — set on the first turn, after the
+	// client compacts, and when loading a conversation from history.
+	ResetContext bool `json:"resetContext"`
 }
 
 func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -443,12 +514,27 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgs := make([]llm.Message, 0, len(req.Messages))
-	for _, m := range req.Messages {
-		if strings.EqualFold(m.Role, "assistant") {
-			msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Blocks: []llm.Block{llm.TextBlock(m.Text)}})
-		} else {
-			msgs = append(msgs, llm.UserText(m.Text))
+	// Build this turn's history. Normally we resume from the remembered
+	// transcript (which carries the tool_use/tool_result turns the client never
+	// sees) plus just the newest user message; on reset, or when we have no
+	// memory for this conversation, we rebuild from the client's text turns.
+	var msgs []llm.Message
+	if prior := s.loadConvo(req.ConversationID); prior != nil && !req.ResetContext {
+		msgs = append(msgs, prior...)
+		if n := len(req.Messages); n > 0 {
+			last := req.Messages[n-1]
+			if !strings.EqualFold(last.Role, "assistant") {
+				msgs = append(msgs, llm.UserText(last.Text))
+			}
+		}
+	} else {
+		msgs = make([]llm.Message, 0, len(req.Messages))
+		for _, m := range req.Messages {
+			if strings.EqualFold(m.Role, "assistant") {
+				msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Blocks: []llm.Block{llm.TextBlock(m.Text)}})
+			} else {
+				msgs = append(msgs, llm.UserText(m.Text))
+			}
 		}
 	}
 	model := req.Model
@@ -475,15 +561,21 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if maxTok <= 0 || maxTok > 16384 {
 		maxTok = 2048
 	}
+	// Route long-tool progress (decompile_sample) to this stream so it stays
+	// alive; clear the sink when the request ends.
+	s.setProgress(func(line string) { send(map[string]any{"type": "status", "text": line}) })
+	defer s.setProgress(nil)
+
 	// With a served tree the model gets read-only tools and investigates on its
 	// own (agent.go); without one it's a plain single-turn chat.
-	s.runAgentLoop(withDraft(r.Context(), req.Report), provider, llm.Request{
+	final := s.runAgentLoop(withDraft(r.Context(), req.Report), provider, llm.Request{
 		System:    strings.TrimSpace(req.System + "\n\n" + s.chatContext()),
 		Messages:  msgs,
 		Tools:     s.agentTools(),
 		Model:     model,
 		MaxTokens: maxTok,
 	}, send)
+	s.storeConvo(req.ConversationID, final)
 }
 
 // resolveProvider turns a chat request into a provider config: a local keyless

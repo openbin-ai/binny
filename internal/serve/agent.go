@@ -517,14 +517,18 @@ func (s *server) toolSearch(pattern, dir string) (string, bool) {
 //	{type:tool_call,name,input}   the model invoked a tool
 //	{type:tool_result,name,ok,preview}
 //	{type:done,model} | {type:error,error}
-func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req llm.Request, send func(map[string]any)) {
+//
+// It returns the full transcript (text + tool_use + tool_result turns) so the
+// caller can remember it and let the next request resume instead of replaying.
+// On a mid-run error it returns what ran so far, so "continue" keeps that work.
+func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req llm.Request, send func(map[string]any)) []llm.Message {
 	for iter := 0; iter < maxAgentIters; iter++ {
 		resp, err := provider.Stream(ctx, req, func(delta string) {
 			send(map[string]any{"type": "chunk", "text": delta})
 		})
 		if err != nil {
 			send(map[string]any{"type": "error", "error": err.Error()})
-			return
+			return req.Messages
 		}
 		// Token accounting for the counter + budget. context = the full prompt size
 		// of THIS call (how big the conversation has grown); input/output are the
@@ -539,8 +543,9 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		})
 		calls := resp.ToolCalls()
 		if len(calls) == 0 {
+			req.Messages = append(req.Messages, resp.AsMessage()) // remember the final answer
 			send(map[string]any{"type": "done", "model": resp.Model})
-			return
+			return req.Messages
 		}
 		// Record the assistant's tool_use turn, then answer each call.
 		req.Messages = append(req.Messages, resp.AsMessage())
@@ -598,11 +603,13 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 	})
 	if err != nil {
 		send(map[string]any{"type": "error", "error": err.Error()})
-		return
+		return req.Messages
 	}
+	req.Messages = append(req.Messages, resp.AsMessage())
 	u := resp.Usage
 	send(map[string]any{"type": "usage", "input": u.InputTokens + u.CacheCreationTokens, "output": u.OutputTokens, "cached": u.CacheReadTokens, "context": u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens})
 	send(map[string]any{"type": "done", "model": resp.Model, "note": "reached the tool-call limit — concluded from findings so far"})
+	return req.Messages
 }
 
 func preview(s string) string {

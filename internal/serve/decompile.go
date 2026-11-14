@@ -127,7 +127,9 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
 	}
-	logf := func(format string, args ...any) { send(map[string]any{"type": "progress", "text": fmt.Sprintf(format, args...)}) }
+	logf := func(format string, args ...any) {
+		send(map[string]any{"type": "progress", "text": fmt.Sprintf(format, args...)})
+	}
 
 	send(map[string]any{"type": "progress", "text": fmt.Sprintf("Decompiling %s (%d bytes) with JADX…", hdr.Filename, size)})
 	res, err := decompileAPK(r.Context(), tmpPath, hdr.Filename, size, logf)
