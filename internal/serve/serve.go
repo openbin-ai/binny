@@ -567,8 +567,10 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 	defer s.setProgress(nil)
 
 	// With a served tree the model gets read-only tools and investigates on its
-	// own (agent.go); without one it's a plain single-turn chat.
-	final := s.runAgentLoop(withDraft(r.Context(), req.Report), provider, llm.Request{
+	// own (agent.go); without one it's a plain single-turn chat. The findings
+	// accumulator lets save_report pick up findings recorded earlier in this turn.
+	ctx := withFindings(withDraft(r.Context(), req.Report), &findingsAccum{})
+	final := s.runAgentLoop(ctx, provider, llm.Request{
 		System:    strings.TrimSpace(req.System + "\n\n" + s.chatContext()),
 		Messages:  msgs,
 		Tools:     s.agentTools(),
