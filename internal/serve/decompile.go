@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"openbin.ai/binny/internal/jadx"
@@ -94,7 +95,9 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	file, hdr, err := r.FormFile("apk")
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "expected an 'apk' file upload: "+err.Error())
+		status, msg := uploadErr("apk", err)
+		log.Printf("decompile: rejected upload: %s", msg)
+		writeErr(w, status, msg)
 		return
 	}
 	defer file.Close()
@@ -102,6 +105,7 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 	// Stash the upload in a temp file for the worker to mount.
 	tmp, err := os.CreateTemp("", "binny-upload-*.apk")
 	if err != nil {
+		log.Printf("decompile: %s: %v", hdr.Filename, err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -110,31 +114,34 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 	size, err := io.Copy(tmp, file)
 	tmp.Close()
 	if err != nil {
+		log.Printf("decompile: %s: saving upload: %v", hdr.Filename, err)
 		writeErr(w, http.StatusInternalServerError, "saving upload: "+err.Error())
 		return
 	}
 
-	// SSE from here on.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	flusher, ok := w.(http.Flusher)
+	// SSE from here on. Everything the UI is told is mirrored to the log: the
+	// sidecar's stderr is the only record once the window is gone or the stream
+	// breaks, and a silent failure is undebuggable.
+	send, ok := sseSender(w)
 	if !ok {
+		log.Printf("decompile: %s: streaming unsupported", hdr.Filename)
 		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	send := func(ev map[string]any) {
-		b, _ := json.Marshal(ev)
-		fmt.Fprintf(w, "data: %s\n\n", b)
-		flusher.Flush()
-	}
 	logf := func(format string, args ...any) {
-		send(map[string]any{"type": "progress", "text": fmt.Sprintf(format, args...)})
+		line := fmt.Sprintf(format, args...)
+		log.Printf("decompile: %s", line)
+		send(map[string]any{"type": "progress", "text": line})
+	}
+	fail := func(err error) {
+		log.Printf("decompile: %s FAILED: %v", hdr.Filename, err)
+		send(map[string]any{"type": "error", "error": err.Error()})
 	}
 
-	send(map[string]any{"type": "progress", "text": fmt.Sprintf("Decompiling %s (%d bytes) with JADX…", hdr.Filename, size)})
+	logf("Decompiling %s (%d bytes) with JADX…", hdr.Filename, size)
 	res, err := decompileAPK(r.Context(), tmpPath, hdr.Filename, size, logf)
 	if err != nil {
-		send(map[string]any{"type": "error", "error": err.Error()})
+		fail(err)
 		return
 	}
 	s.setDir(res.SrcDir)
@@ -144,8 +151,19 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 	}
 	root, err := buildTree(res.SrcDir)
 	if err != nil {
-		send(map[string]any{"type": "error", "error": err.Error()})
+		fail(err)
 		return
 	}
 	send(map[string]any{"type": "ready", "root": root, "package": res.Package, "name": res.Name})
+}
+
+// uploadErr turns a failed multipart read into a status and a message a person
+// can act on. The size check matches on text because *http.MaxBytesError needs
+// Go 1.19 and go.mod targets 1.18.
+func uploadErr(field string, err error) (int, string) {
+	if strings.Contains(err.Error(), "request body too large") {
+		return http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("file is larger than the %d MB upload limit", maxUploadBytes>>20)
+	}
+	return http.StatusBadRequest, fmt.Sprintf("expected a '%s' file upload: %v", field, err)
 }

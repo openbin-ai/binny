@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -147,7 +148,9 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "expected a 'file' upload: "+err.Error())
+		status, msg := uploadErr("file", err)
+		log.Printf("analyze: rejected upload: %s", msg)
+		writeErr(w, status, msg)
 		return
 	}
 	defer file.Close()
@@ -177,13 +180,16 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	// Mirrored to the log for the same reason as handleDecompile.
 	logf := func(format string, args ...any) {
-		send(map[string]any{"type": "progress", "text": fmt.Sprintf(format, args...)})
+		line := fmt.Sprintf(format, args...)
+		log.Printf("analyze: %s", line)
+		send(map[string]any{"type": "progress", "text": line})
 	}
 
 	processor := r.FormValue("processor") // "" = auto-detect; set for raw/firmware
 
-	send(map[string]any{"type": "progress", "text": fmt.Sprintf("Analyzing %s (%d bytes) with Ghidra…", hdr.Filename, size)})
+	logf("Analyzing %s (%d bytes) with Ghidra…", hdr.Filename, size)
 	meta, err := analyzeBinary(r.Context(), tmpPath, hdr.Filename, processor, size, logf)
 	if errors.Is(err, errNeedProcessor) {
 		send(map[string]any{
@@ -195,6 +201,7 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		log.Printf("analyze: %s FAILED: %v", hdr.Filename, err)
 		send(map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
@@ -205,6 +212,7 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	tb.RegisterRead(reg)
 	summary, isErr := reg.Run(r.Context(), "get_metadata", []byte(`{}`))
 	if isErr {
+		log.Printf("analyze: %s FAILED: %s", hdr.Filename, summary)
 		send(map[string]any{"type": "error", "error": summary})
 		return
 	}
