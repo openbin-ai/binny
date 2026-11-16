@@ -438,7 +438,7 @@ func sha256FileTUI(path string) (string, error) {
 // or a zip carrying AndroidManifest.xml (a renamed or extensionless sample).
 func isAndroidPackage(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".apk", ".xapk", ".apks", ".aab":
+	case ".apk", ".xapk", ".apks", ".apkm", ".aab":
 		return true
 	}
 	zr, err := zip.OpenReader(path)

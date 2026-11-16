@@ -723,16 +723,33 @@ async function openProject(p){
         }
       }
     });
-  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  }catch(e){ showFail(msgEl, bubble, "open project", e); }
   finally{ state.streaming = false; }
 }
 
 /* shared SSE reader — line-delimited `data: {json}` events */
 async function streamSSE(url, opts, onEvent){
-  const res = await fetch(url, opts);
+  let res;
+  try{ res = await fetch(url, opts); }
+  catch(e){
+    // fetch rejects with a bare "TypeError: Failed to fetch" when the request never
+    // got out: the backend is gone, or the browser couldn't read the file to upload.
+    const upload = opts && opts.body instanceof FormData;
+    throw new Error("Couldn't send the request to the binny backend ("+url+": "+(e.message||e)+"). "
+      + (upload ? "Either the file couldn't be read — a folder, or a file that was moved, changed or isn't readable — or " : "Most likely ")
+      + "`binny --serve` has stopped; check its terminal output.", {cause:e});
+  }
+  if(!res.ok){
+    let msg = "Request failed ("+res.status+(res.statusText?" "+res.statusText:"")+").";
+    try{ const j = await res.json(); if(j && j.error) msg = j.error; }catch{}
+    throw new Error(msg);
+  }
   const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
   for(;;){
-    const {value, done} = await reader.read(); if(done) break;
+    let value, done;
+    try{ ({value, done} = await reader.read()); }
+    catch(e){ throw new Error("Lost the connection to the binny backend mid-stream ("+(e.message||e)+"). `binny --serve` may have crashed — check its terminal output.", {cause:e}); }
+    if(done) break;
     buf += dec.decode(value, {stream:true}); let idx;
     while((idx = buf.indexOf("\n\n")) >= 0){
       const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
@@ -741,16 +758,29 @@ async function streamSSE(url, opts, onEvent){
     }
   }
 }
+// Show a failure in the chat AND log it (with its stack and cause) to the
+// devtools console — the bubble alone can't tell you where it came from.
+function showFail(msgEl, bubble, what, e){
+  console.error("[binny] "+what+" failed:", e, e && e.cause ? e.cause : "");
+  msgEl.className = "msg err"; bubble.textContent = (e && e.message) || String(e);
+}
 
 /* ---- open a local file: APK → JADX, anything else → Ghidra ---- */
 $("#openApk").onclick = ()=>$("#apkInput").click();
 $("#apkInput").onchange = e=>{ if(e.target.files[0]) openLocalFile(e.target.files[0]); e.target.value=""; };
 ["dragover","drop"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); }));
-document.addEventListener("drop", e=>{ const f=e.dataTransfer?.files?.[0]; if(f) openLocalFile(f); });
+document.addEventListener("drop", e=>{
+  const it = e.dataTransfer?.items?.[0];
+  if(it && it.webkitGetAsEntry && it.webkitGetAsEntry()?.isDirectory){
+    addMsg("err", "That's a folder. Drop a single file — an .apk / .xapk / .apks / .apkm to decompile with JADX, or a binary for Ghidra. (For an already-decompiled folder use File → Open Decompiled Folder, or binny --serve --serve-dir <folder>.)");
+    return;
+  }
+  const f=e.dataTransfer?.files?.[0]; if(f) openLocalFile(f);
+});
 
 function openLocalFile(f){
   if(!f) return;
-  if(/\.(apk|xapk|apks)$/i.test(f.name)) decompile(f); // APK → JADX source tree
+  if(/\.(apk|xapk|apks|apkm)$/i.test(f.name)) decompile(f); // APK or split bundle → JADX source tree
   else analyze(f);                                      // binary → Ghidra analysis
 }
 
@@ -782,7 +812,7 @@ async function analyze(file, processor){
         refreshSample();
       }
     });
-  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
+  }catch(e){ showFail(msgEl, bubble, "analyze "+file.name, e); }
   finally{ state.streaming = false; }
 }
 
@@ -792,30 +822,25 @@ async function decompile(file){
   const msgEl = addMsg("assistant",""); const bubble = msgEl.querySelector(".bubble");
   showProgress(bubble, "Uploading "+file.name+"…");
   const fd = new FormData(); fd.append("apk", file);
+  let finished = false;
   try{
-    const res = await fetch("/api/decompile",{method:"POST",body:fd});
-    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
-    for(;;){
-      const {value,done} = await reader.read(); if(done) break;
-      buf += dec.decode(value,{stream:true}); let idx;
-      while((idx=buf.indexOf("\n\n"))>=0){
-        const line = buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
-        if(!line.startsWith("data:")) continue;
-        const ev = JSON.parse(line.slice(5).trim());
-        if(ev.type==="progress"){ showProgress(bubble, ev.text); }
-        else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
-        else if(ev.type==="ready"){
-          setProject(null, "");
-          bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
-          refreshSample();
-          clearBinaryPanel();
-          await loadTree();
-          if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
-        }
+    await streamSSE("/api/decompile", {method:"POST", body:fd}, async ev=>{
+      if(ev.type==="progress"){ showProgress(bubble, ev.text); }
+      else if(ev.type==="error"){ finished = true; console.error("[binny] decompile "+file.name+" failed:", ev.error); msgEl.className="msg err"; bubble.textContent = ev.error; }
+      else if(ev.type==="ready"){
+        finished = true;
+        setProject(null, "");
+        bubble.textContent = "Decompiled "+(ev.package||ev.name||file.name)+". Opening the tree…";
+        refreshSample();
+        clearBinaryPanel();
+        await loadTree();
+        if(!$("#explorerDrawer").classList.contains("open")) toggle("#explorerDrawer","#tExplorer");
       }
-    }
-  }catch(e){ msgEl.className="msg err"; bubble.textContent = String(e); }
-  state.streaming = false;
+    });
+    // The stream closed without a result: don't leave the spinner running forever.
+    if(!finished) throw new Error("The backend closed the stream before the decompile finished. Check the `binny --serve` terminal output.");
+  }catch(e){ showFail(msgEl, bubble, "decompile "+file.name, e); }
+  finally{ state.streaming = false; }
 }
 
 /* ---- findings ---- */
