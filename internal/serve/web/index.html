@@ -735,9 +735,9 @@ async function streamSSE(url, opts, onEvent){
     // fetch rejects with a bare "TypeError: Failed to fetch" when the request never
     // got out: the backend is gone, or the browser couldn't read the file to upload.
     const upload = opts && opts.body instanceof FormData;
-    throw new Error("Couldn't send the request to the binny backend ("+url+": "+(e.message||e)+"). "
+    throw Object.assign(new Error("Couldn't send the request to the binny backend ("+url+": "+(e.message||e)+"). "
       + (upload ? "Either the file couldn't be read — a folder, or a file that was moved, changed or isn't readable — or " : "Most likely ")
-      + "`binny --serve` has stopped; check its terminal output.", {cause:e});
+      + "`binny --serve` has stopped; check its terminal output.", {cause:e}), {transport:true});
   }
   if(!res.ok){
     let msg = "Request failed ("+res.status+(res.statusText?" "+res.statusText:"")+").";
@@ -748,13 +748,39 @@ async function streamSSE(url, opts, onEvent){
   for(;;){
     let value, done;
     try{ ({value, done} = await reader.read()); }
-    catch(e){ throw new Error("Lost the connection to the binny backend mid-stream ("+(e.message||e)+"). `binny --serve` may have crashed — check its terminal output.", {cause:e}); }
+    catch(e){ throw Object.assign(new Error("Lost the connection to the binny backend mid-stream ("+(e.message||e)+"). `binny --serve` may have crashed — check its terminal output.", {cause:e}), {transport:true}); }
     if(done) break;
     buf += dec.decode(value, {stream:true}); let idx;
     while((idx = buf.indexOf("\n\n")) >= 0){
       const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
       if(!line.startsWith("data:")) continue;
       await onEvent(JSON.parse(line.slice(5).trim()));
+    }
+  }
+}
+// A decompile/analyze is a job on the backend that outlives the request that
+// started it: the stream opens with {type:"job",id}, and if it breaks we
+// re-attach at /api/job from the number of events already seen. This matters
+// because Firefox aborts every in-flight request when the network changes, and
+// starting the worker's Docker container is a network change — without the
+// re-attach, each decompile from Firefox died with "Error in input stream".
+async function streamJob(url, opts, onEvent){
+  let jobId = null, seen = 0, fails = 0;
+  const handle = async ev=>{
+    seen++; fails = 0;
+    if(ev.type==="job"){ jobId = ev.id; return; }
+    await onEvent(ev);
+  };
+  let next = ()=>streamSSE(url, opts, handle);
+  for(;;){
+    try{ await next(); return; }
+    catch(e){
+      // Only a broken connection is worth resuming; a job we never got an id
+      // for, an HTTP error, or a failure in our own handler is final.
+      if(!e.transport || !jobId || ++fails > 6) throw e;
+      console.warn("[binny] stream dropped ("+((e.cause&&e.cause.message)||e.message)+") — re-attaching to job "+jobId+" at event "+seen);
+      await new Promise(r=>setTimeout(r, 300*fails));
+      next = ()=>streamSSE("/api/job?id="+encodeURIComponent(jobId)+"&from="+seen, {}, handle);
     }
   }
 }
@@ -791,7 +817,7 @@ async function analyze(file, processor){
   showProgress(bubble, "Uploading "+file.name+"…");
   const fd = new FormData(); fd.append("file", file); if(processor) fd.append("processor", processor);
   try{
-    await streamSSE("/api/analyze", {method:"POST", body:fd}, ev=>{
+    await streamJob("/api/analyze", {method:"POST", body:fd}, ev=>{
       if(ev.type==="progress"){ showProgress(bubble, ev.text); }
       else if(ev.type==="error"){ msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="need_processor"){
@@ -824,7 +850,7 @@ async function decompile(file){
   const fd = new FormData(); fd.append("apk", file);
   let finished = false;
   try{
-    await streamSSE("/api/decompile", {method:"POST", body:fd}, async ev=>{
+    await streamJob("/api/decompile", {method:"POST", body:fd}, async ev=>{
       if(ev.type==="progress"){ showProgress(bubble, ev.text); }
       else if(ev.type==="error"){ finished = true; console.error("[binny] decompile "+file.name+" failed:", ev.error); msgEl.className="msg err"; bubble.textContent = ev.error; }
       else if(ev.type==="ready"){

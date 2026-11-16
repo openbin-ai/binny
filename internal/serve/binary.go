@@ -139,7 +139,9 @@ func localBinaryProject(meta store.Meta) *api.Project {
 // handleAnalyze accepts an uploaded binary (multipart field "file"), runs Ghidra
 // locally, and enters binary chat mode, streaming progress over SSE:
 //
-//	{type:progress,text}  {type:ready,kind:"BIN",name,summary}  {type:error,error}
+//	{type:job,id}  {type:progress,text}  {type:ready,kind:"BIN",name,summary}  {type:error,error}
+//
+// Like the decompile, the analysis is a job (jobs.go) the client can re-attach to.
 func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
@@ -156,75 +158,76 @@ func (s *server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	// Preserve the original basename so archdetect/Ghidra see a sensible name.
+	// The job owns the temp dir from here: it must outlive this request.
 	tmpDir, err := os.MkdirTemp("", "binny-bin-*")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer os.RemoveAll(tmpDir)
-	tmpPath := filepath.Join(tmpDir, filepath.Base(hdr.Filename))
+	name := hdr.Filename
+	tmpPath := filepath.Join(tmpDir, filepath.Base(name))
 	tmp, err := os.Create(tmpPath)
 	if err != nil {
+		os.RemoveAll(tmpDir)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	size, err := io.Copy(tmp, file)
 	tmp.Close()
 	if err != nil {
+		os.RemoveAll(tmpDir)
 		writeErr(w, http.StatusInternalServerError, "saving upload: "+err.Error())
 		return
 	}
-
-	send, ok := sseSender(w)
-	if !ok {
-		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
-		return
-	}
-	// Mirrored to the log for the same reason as handleDecompile.
-	logf := func(format string, args ...any) {
-		line := fmt.Sprintf(format, args...)
-		log.Printf("analyze: %s", line)
-		send(map[string]any{"type": "progress", "text": line})
-	}
-
 	processor := r.FormValue("processor") // "" = auto-detect; set for raw/firmware
 
-	logf("Analyzing %s (%d bytes) with Ghidra…", hdr.Filename, size)
-	meta, err := analyzeBinary(r.Context(), tmpPath, hdr.Filename, processor, size, logf)
-	if errors.Is(err, errNeedProcessor) {
-		send(map[string]any{
-			"type":       "need_processor",
-			"name":       hdr.Filename,
-			"candidates": archdetect.RawCandidates,
-			"note":       "This looks like a raw/headerless image (firmware). Pick the CPU architecture to analyze it as.",
-		})
-		return
-	}
-	if err != nil {
-		log.Printf("analyze: %s FAILED: %v", hdr.Filename, err)
-		send(map[string]any{"type": "error", "error": err.Error()})
-		return
-	}
+	j := s.startJob("analyze", func(ctx context.Context, emit func(map[string]any)) {
+		defer os.RemoveAll(tmpDir)
+		// Mirrored to the log for the same reason as handleDecompile.
+		logf := func(format string, args ...any) {
+			line := fmt.Sprintf(format, args...)
+			log.Printf("analyze: %s", line)
+			emit(map[string]any{"type": "progress", "text": line})
+		}
 
-	project := localBinaryProject(meta)
-	reg := tools.NewRegistry()
-	tb := tools.NewToolbox(nil, project) // local blob read needs no backend client
-	tb.RegisterRead(reg)
-	summary, isErr := reg.Run(r.Context(), "get_metadata", []byte(`{}`))
-	if isErr {
-		log.Printf("analyze: %s FAILED: %s", hdr.Filename, summary)
-		send(map[string]any{"type": "error", "error": summary})
-		return
-	}
-	s.setBinaryProject(project.ID, reg, tb)
-	s.setTargetProject(project)
-	// The upload lives in a temp dir removed when this request ends; keep a copy
-	// so the agent's sandbox tools can read the raw bytes for the whole session.
-	if p, err := s.keepSample(meta.Sha256, hdr.Filename, tmpPath); err != nil {
-		logf("Couldn't keep the raw sample for extraction (%v) — attach it later with Attach sample.", err)
-	} else {
-		meta.SamplePath = p
-		_ = store.SaveMeta(meta)
-	}
-	send(map[string]any{"type": "ready", "kind": "BIN", "name": meta.Name, "projectId": project.ID, "summary": summary})
+		logf("Analyzing %s (%d bytes) with Ghidra…", name, size)
+		meta, err := analyzeBinary(ctx, tmpPath, name, processor, size, logf)
+		if errors.Is(err, errNeedProcessor) {
+			emit(map[string]any{
+				"type":       "need_processor",
+				"name":       name,
+				"candidates": archdetect.RawCandidates,
+				"note":       "This looks like a raw/headerless image (firmware). Pick the CPU architecture to analyze it as.",
+			})
+			return
+		}
+		if err != nil {
+			log.Printf("analyze: %s FAILED: %v", name, err)
+			emit(map[string]any{"type": "error", "error": err.Error()})
+			return
+		}
+
+		project := localBinaryProject(meta)
+		reg := tools.NewRegistry()
+		tb := tools.NewToolbox(nil, project) // local blob read needs no backend client
+		tb.RegisterRead(reg)
+		summary, isErr := reg.Run(ctx, "get_metadata", []byte(`{}`))
+		if isErr {
+			log.Printf("analyze: %s FAILED: %s", name, summary)
+			emit(map[string]any{"type": "error", "error": summary})
+			return
+		}
+		s.setBinaryProject(project.ID, reg, tb)
+		s.setTargetProject(project)
+		// The upload lives in a temp dir removed when this job ends; keep a copy
+		// so the agent's sandbox tools can read the raw bytes for the whole session.
+		if p, err := s.keepSample(meta.Sha256, name, tmpPath); err != nil {
+			logf("Couldn't keep the raw sample for extraction (%v) — attach it later with Attach sample.", err)
+		} else {
+			meta.SamplePath = p
+			_ = store.SaveMeta(meta)
+		}
+		emit(map[string]any{"type": "ready", "kind": "BIN", "name": meta.Name, "projectId": project.ID, "summary": summary})
+	})
+	streamJob(w, r, j, 0)
 }
