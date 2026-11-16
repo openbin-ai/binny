@@ -14,6 +14,7 @@
 //   - GET  /api/local-models     detected local inference servers + models
 //   - GET  /api/files            the decompiled tree (from --serve-dir)
 //   - GET  /api/file?path=       one file's content
+//   - GET  /api/job?id=&from=    re-attach to a decompile/analyze job (jobs.go)
 //   - GET/POST /api/sample       the raw sample attached for extraction (sample.go)
 //   - POST /api/chat             streaming chat (SSE), local or configured model
 //
@@ -128,6 +129,11 @@ type server struct {
 	// and keep the HTTP response body alive — an idle stream gets severed and
 	// the browser throws "TypeError: Error in input stream".
 	progress func(string)
+
+	// jobs are the long local runs (decompile/analyze) a client can re-attach
+	// to after its stream drops — see jobs.go.
+	jobsMu sync.Mutex
+	jobs   map[string]*job
 
 	// convos is the full per-conversation transcript (text + tool_use +
 	// tool_result turns), keyed by the client's conversationId. The web UI only
@@ -285,6 +291,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/file", s.handleFile)
 	mux.HandleFunc("/api/decompile", s.handleDecompile)
 	mux.HandleFunc("/api/analyze", s.handleAnalyze)
+	mux.HandleFunc("/api/job", s.handleJob)
 	mux.HandleFunc("/api/sample", s.handleSample)
 	mux.HandleFunc("/api/chat", s.handleChat)
 

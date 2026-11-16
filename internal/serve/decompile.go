@@ -86,7 +86,10 @@ const maxUploadBytes = 512 << 20 // 512 MB APK cap
 // handleDecompile accepts an uploaded APK (multipart field "apk"), decompiles it
 // locally, swaps the served tree to the result, and streams progress over SSE:
 //
-//	{type:progress,text}  {type:ready,root,package,name}  {type:error,error}
+//	{type:job,id}  {type:progress,text}  {type:ready,root,package,name}  {type:error,error}
+//
+// The decompile is a job (jobs.go): it keeps running if this response is cut
+// off, and the client resumes the stream from /api/job.
 func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "POST only")
@@ -102,7 +105,8 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Stash the upload in a temp file for the worker to mount.
+	// Stash the upload in a temp file for the worker to mount. The job owns it
+	// from here: it must outlive this request.
 	tmp, err := os.CreateTemp("", "binny-upload-*.apk")
 	if err != nil {
 		log.Printf("decompile: %s: %v", hdr.Filename, err)
@@ -110,51 +114,50 @@ func (s *server) handleDecompile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
 	size, err := io.Copy(tmp, file)
 	tmp.Close()
 	if err != nil {
+		os.Remove(tmpPath)
 		log.Printf("decompile: %s: saving upload: %v", hdr.Filename, err)
 		writeErr(w, http.StatusInternalServerError, "saving upload: "+err.Error())
 		return
 	}
+	name := hdr.Filename
 
-	// SSE from here on. Everything the UI is told is mirrored to the log: the
-	// sidecar's stderr is the only record once the window is gone or the stream
-	// breaks, and a silent failure is undebuggable.
-	send, ok := sseSender(w)
-	if !ok {
-		log.Printf("decompile: %s: streaming unsupported", hdr.Filename)
-		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
-		return
-	}
-	logf := func(format string, args ...any) {
-		line := fmt.Sprintf(format, args...)
-		log.Printf("decompile: %s", line)
-		send(map[string]any{"type": "progress", "text": line})
-	}
-	fail := func(err error) {
-		log.Printf("decompile: %s FAILED: %v", hdr.Filename, err)
-		send(map[string]any{"type": "error", "error": err.Error()})
-	}
+	j := s.startJob("decompile", func(ctx context.Context, emit func(map[string]any)) {
+		defer os.Remove(tmpPath)
+		// Everything the UI is told is mirrored to the log: the sidecar's stderr
+		// is the only record once the window is gone, and a silent failure is
+		// undebuggable.
+		logf := func(format string, args ...any) {
+			line := fmt.Sprintf(format, args...)
+			log.Printf("decompile: %s", line)
+			emit(map[string]any{"type": "progress", "text": line})
+		}
+		fail := func(err error) {
+			log.Printf("decompile: %s FAILED: %v", name, err)
+			emit(map[string]any{"type": "error", "error": err.Error()})
+		}
 
-	logf("Decompiling %s (%d bytes) with JADX…", hdr.Filename, size)
-	res, err := decompileAPK(r.Context(), tmpPath, hdr.Filename, size, logf)
-	if err != nil {
-		fail(err)
-		return
-	}
-	s.setDir(res.SrcDir)
-	// Keep the APK itself: the sandbox unzips it for assets/, res/raw/, lib/.
-	if _, err := s.keepSample(res.Sha, hdr.Filename, tmpPath); err != nil {
-		logf("Couldn't keep the APK for extraction (%v) — attach it later with Attach sample.", err)
-	}
-	root, err := buildTree(res.SrcDir)
-	if err != nil {
-		fail(err)
-		return
-	}
-	send(map[string]any{"type": "ready", "root": root, "package": res.Package, "name": res.Name})
+		logf("Decompiling %s (%d bytes) with JADX…", name, size)
+		res, err := decompileAPK(ctx, tmpPath, name, size, logf)
+		if err != nil {
+			fail(err)
+			return
+		}
+		s.setDir(res.SrcDir)
+		// Keep the APK itself: the sandbox unzips it for assets/, res/raw/, lib/.
+		if _, err := s.keepSample(res.Sha, name, tmpPath); err != nil {
+			logf("Couldn't keep the APK for extraction (%v) — attach it later with Attach sample.", err)
+		}
+		root, err := buildTree(res.SrcDir)
+		if err != nil {
+			fail(err)
+			return
+		}
+		emit(map[string]any{"type": "ready", "root": root, "package": res.Package, "name": res.Name})
+	})
+	streamJob(w, r, j, 0)
 }
 
 // uploadErr turns a failed multipart read into a status and a message a person
