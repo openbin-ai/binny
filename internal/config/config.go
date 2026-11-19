@@ -324,14 +324,86 @@ func (c *Config) SetBaseURL(providerID, rawURL string) error {
 	if p.Kind == KindBedrock {
 		return fmt.Errorf("provider %q uses the AWS SDK; set AWS_ENDPOINT_URL in your environment instead", providerID)
 	}
+	clean, err := cleanBaseURL(rawURL)
+	if err != nil {
+		return err
+	}
+	p.BaseURL = clean
+	return c.Save()
+}
+
+// cleanBaseURL validates and normalizes an API root: an http(s) URL with a host,
+// no query/fragment, trailing slash trimmed. The path is kept as given because
+// compat providers differ on whether /v1 is part of the root.
+func cleanBaseURL(rawURL string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return fmt.Errorf("endpoint must be a full URL like https://anthropic.example.com (got %q)", rawURL)
+		return "", fmt.Errorf("endpoint must be a full URL like http://localhost:8000/v1 (got %q)", rawURL)
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("endpoint must not carry a query string or fragment")
+		return "", fmt.Errorf("endpoint must not carry a query string or fragment")
 	}
-	p.BaseURL = strings.TrimRight(u.String(), "/")
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// AddModel adds a model id to a provider's selectable list (if not already
+// present) and persists. This is how a user pins a model the shipped list
+// doesn't name yet — e.g. a newer kimi-k3.1-pro — so it survives restarts.
+func (c *Config) AddModel(providerID, model string) error {
+	p := c.Find(providerID)
+	if p == nil {
+		return fmt.Errorf("unknown provider %q", providerID)
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("model id required")
+	}
+	for _, m := range p.Models {
+		if m == model {
+			return nil // already listed — nothing to do
+		}
+	}
+	p.Models = append([]string{model}, p.Models...) // newest first: becomes the default pick
+	return c.Save()
+}
+
+// AddProvider adds a custom OpenAI-compatible provider (or replaces an existing
+// one with the same id) and persists. This is how a user points BINNY at a
+// self-hosted or otherwise non-default OpenAI-compatible endpoint from the UI.
+// An empty key marks it keyless (Local) so no Authorization header is sent.
+func (c *Config) AddProvider(p Provider) error {
+	p.ID = strings.TrimSpace(p.ID)
+	if p.ID == "" {
+		return fmt.Errorf("provider id required")
+	}
+	if p.Kind == "" {
+		p.Kind = KindOpenAI
+	}
+	if p.Kind != KindOpenAI && p.Kind != KindAnthropic {
+		return fmt.Errorf("custom providers must be openai- or anthropic-compatible (got %q)", p.Kind)
+	}
+	clean, err := cleanBaseURL(p.BaseURL)
+	if err != nil {
+		return err
+	}
+	p.BaseURL = clean
+	p.APIKey = strings.TrimSpace(p.APIKey)
+	p.Local = p.APIKey == "" // keyless → no auth header
+	// Drop blank model ids.
+	var models []string
+	for _, m := range p.Models {
+		if m = strings.TrimSpace(m); m != "" {
+			models = append(models, m)
+		}
+	}
+	p.Models = models
+	for i := range c.Providers {
+		if c.Providers[i].ID == p.ID {
+			c.Providers[i] = p
+			return c.Save()
+		}
+	}
+	c.Providers = append(c.Providers, p)
 	return c.Save()
 }
 

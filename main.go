@@ -158,7 +158,11 @@ func run() error {
 func runDesktop(args []string) error {
 	fs := flag.NewFlagSet("binny desktop", flag.ContinueOnError)
 	dir := fs.String("dir", "", "a decompiled tree to open in the Explorer/Code panes (optional)")
-	addr := fs.String("addr", "127.0.0.1:0", "address to listen on (loopback only; :0 picks a free port)")
+	// A STABLE default port (not :0). The chat history lives in the browser's
+	// localStorage, which is keyed by origin (host+port); a random port each
+	// launch gave every restart a fresh, empty store — wiping all saved chats.
+	// PortFallback below keeps it stable even if 8899 is momentarily taken.
+	addr := fs.String("addr", "127.0.0.1:8899", "address to listen on (loopback only; :0 picks a random free port)")
 	noOpen := fs.Bool("no-open", false, "don't open the browser, just print the URL")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), `Usage: binny desktop [--dir <decompiled tree>] [--addr host:port] [--no-open]
@@ -183,11 +187,12 @@ OpenAPK account. Same engine and models as the terminal UI. Ctrl+C stops it.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	return serve.Run(ctx, serve.Options{
-		Addr:      *addr,
-		Version:   version,
-		Dir:       *dir,
-		Providers: cfg.Providers,
-		Endpoints: config.LoadEndpoints(),
+		Addr:         *addr,
+		Version:      version,
+		Dir:          *dir,
+		Providers:    cfg.Providers,
+		Endpoints:    config.LoadEndpoints(),
+		PortFallback: true, // keep a stable origin so chat history survives restarts
 		OnListen: func(url string) {
 			fmt.Fprintf(os.Stderr, "\nBINNY Desktop is running at %s  (Ctrl+C to stop)\n", url)
 			if *noOpen {

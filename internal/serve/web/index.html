@@ -193,6 +193,24 @@
   .keyrow button.save{background:var(--accent);border-color:var(--accent);color:#fff}
   .keyrow button:disabled{opacity:.5;cursor:default}
   .keysNote{font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:10px}
+  .mform{padding:12px 0;border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen section separator */
+  .mform:last-child{border-bottom:none}
+  .mform h4{margin:0 0 3px;font-size:13px;color:var(--fg)}
+  .mform .sub{font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:9px}
+  .mform .frow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .mform label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);flex:1 1 140px}
+  .mform input,.mform select{font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:7px 9px;width:100%}
+  .mform input:focus,.mform select:focus{outline:none;border-color:var(--accent)}
+  .mform .act{display:flex;gap:7px;margin-top:9px;align-items:center}
+  .mform button{background:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:7px 13px;font-size:12.5px;color:#fff;cursor:pointer}
+  .mform button.ghost{background:var(--panel2);border-color:var(--border);color:var(--fg)}
+  .mform button:disabled{opacity:.5;cursor:default}
+  .mform .msg{font-size:11.5px;color:var(--muted)}
+  .mform .msg.err{color:var(--err,#f85149)}
+  .mform .msg.ok{color:var(--ok,#3fb950)}
+  .discovered{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .discovered .chip{font-size:12px;background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:4px 10px;cursor:pointer;color:var(--fg)}
+  .discovered .chip:hover{border-color:var(--accent)}
   .acct{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
   .plist{display:flex;flex-direction:column;gap:6px}
   .prow{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer}
@@ -250,6 +268,7 @@
   <button id="sampleBtn" style="display:none" title="Attach the raw file for this target so BINNY can run tools against the real bytes (strings, readelf, decryptors)">Attach sample</button>
   <input type="file" id="sampleInput" style="display:none">
   <select id="modelPick" title="model"></select>
+  <button id="addModelBtn" title="Add a model (e.g. a newer one) or a custom OpenAI-compatible endpoint">＋</button>
   <button id="tExplorer">Explorer</button>
   <button id="tCode">Code</button>
   <button id="tBinary" style="display:none">Binary</button>
@@ -349,6 +368,17 @@
   </div>
 </div>
 
+<div class="overlay" id="modelsModal">
+  <div class="modal">
+    <div class="mhead">
+      <b>Models &amp; endpoints</b>
+      <div class="grow"></div>
+      <button id="modelsClose" title="Close">Close</button>
+    </div>
+    <div class="mbody" id="modelsBody"></div>
+  </div>
+</div>
+
 <script>
 const $ = s => document.querySelector(s);
 const api = p => fetch(p).then(r => r.json());
@@ -400,7 +430,7 @@ $("#focusBtn").onclick = e=>{ e.stopPropagation(); const m=$("#focusMenu"); m.hi
 document.addEventListener("click", e=>{ if(!$("#focus").contains(e.target)) $("#focusMenu").hidden = true; });
 
 /* ---- model picker ---- */
-async function loadModels(){
+async function loadModels(preferLabel){
   const pick = $("#modelPick");
   pick.innerHTML = "";
   const opts = [];
@@ -422,7 +452,10 @@ async function loadModels(){
   opts.forEach((o,i)=>{
     const el = document.createElement("option"); el.value = i; el.textContent = o.label; pick.appendChild(el);
   });
-  pick._opts = opts; state.model = opts[0];
+  pick._opts = opts;
+  let sel = 0;
+  if(preferLabel){ const i = opts.findIndex(o=>o.label===preferLabel); if(i>=0) sel=i; }
+  pick.value = sel; state.model = opts[sel];
   pick.onchange = () => state.model = pick._opts[pick.value|0];
 }
 
@@ -561,6 +594,119 @@ async function setKey(providerId, key, btn){
     await loadModels();   // the newly-ready provider's models now appear in the picker
     await openKeys();     // re-render with fresh ready/stored state
   }catch(e){ btn.disabled=false; btn.textContent=old; alert("Couldn't save key: "+((e&&e.message)||e)); }
+}
+
+/* ---- add a model / custom endpoint ---- */
+$("#addModelBtn").onclick = ()=>openModels();
+$("#modelsClose").onclick = ()=>$("#modelsModal").classList.remove("open");
+$("#modelsModal").addEventListener("click", e=>{ if(e.target===$("#modelsModal")) $("#modelsModal").classList.remove("open"); });
+
+async function postJSON(url, obj){
+  const res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj)});
+  if(!res.ok){ let m="Request failed ("+res.status+")."; try{ const j=await res.json(); if(j&&j.error) m=j.error; }catch{} throw new Error(m); }
+  return res.json().catch(()=>({}));
+}
+
+async function openModels(){
+  $("#modelsModal").classList.add("open");
+  const body = $("#modelsBody");
+  body.innerHTML = '<div class="status">Loading…</div>';
+  let providers = [];
+  try{ ({providers} = await api("/api/config")); }catch{}
+  // Cloud (configured) providers you can pin a model to. Bedrock has no queryable list.
+  const cloud = (providers||[]).filter(p=>!p.local && p.kind!=="bedrock");
+
+  body.innerHTML = "";
+
+  // --- Section 1: add/pin a model to an existing provider ---
+  const s1 = document.createElement("div"); s1.className="mform";
+  s1.innerHTML =
+    '<h4>Add a model</h4>'
+    + '<div class="sub">Pin a model id the built-in list doesn\'t name yet (e.g. <code>kimi-k3.1-pro</code>). It\'s saved and appears in the picker. "Discover" asks the provider for its current list.</div>';
+  const provSel = document.createElement("select");
+  if(!cloud.length){ const o=document.createElement("option"); o.textContent="no cloud providers — set a key first (Settings → API keys)"; o.disabled=true; provSel.appendChild(o); }
+  for(const p of cloud){ const o=document.createElement("option"); o.value=p.id; o.textContent=p.id+(p.ready?"":" (no key)"); provSel.appendChild(o); }
+  const modelInp = document.createElement("input"); modelInp.placeholder="model id, e.g. kimi-k3.1-pro"; modelInp.autocomplete="off";
+  const row1 = document.createElement("div"); row1.className="frow";
+  const l1=document.createElement("label"); l1.textContent="Provider"; l1.appendChild(provSel);
+  const l2=document.createElement("label"); l2.textContent="Model id"; l2.appendChild(modelInp);
+  row1.appendChild(l1); row1.appendChild(l2);
+  const act1=document.createElement("div"); act1.className="act";
+  const addBtn=document.createElement("button"); addBtn.textContent="Add & use";
+  const discBtn=document.createElement("button"); discBtn.className="ghost"; discBtn.textContent="Discover";
+  const msg1=document.createElement("span"); msg1.className="msg";
+  act1.appendChild(addBtn); act1.appendChild(discBtn); act1.appendChild(msg1);
+  const disc=document.createElement("div"); disc.className="discovered";
+  s1.appendChild(row1); s1.appendChild(act1); s1.appendChild(disc);
+  body.appendChild(s1);
+
+  discBtn.onclick = async ()=>{
+    const id=provSel.value; if(!id) return;
+    disc.innerHTML=""; msg1.className="msg"; msg1.textContent="Discovering…"; discBtn.disabled=true;
+    try{
+      const r = await api("/api/models?providerId="+encodeURIComponent(id));
+      msg1.textContent = (r.models&&r.models.length)? (r.live?"Live list:":"Known list:") : "No models returned (check the key/endpoint).";
+      for(const m of (r.models||[])){ const c=document.createElement("span"); c.className="chip"; c.textContent=m; c.onclick=()=>{ modelInp.value=m; }; disc.appendChild(c); }
+    }catch(e){ msg1.className="msg err"; msg1.textContent=String((e&&e.message)||e); }
+    discBtn.disabled=false;
+  };
+  addBtn.onclick = async ()=>{
+    const id=provSel.value, model=modelInp.value.trim();
+    if(!id||!model){ msg1.className="msg err"; msg1.textContent="Pick a provider and type a model id."; return; }
+    addBtn.disabled=true; msg1.className="msg"; msg1.textContent="Saving…";
+    try{
+      await postJSON("/api/model",{providerId:id, model});
+      await loadModels(id+": "+model); // reload picker and select the new model
+      msg1.className="msg ok"; msg1.textContent="Added — now selected in the picker."; modelInp.value="";
+    }catch(e){ msg1.className="msg err"; msg1.textContent=String((e&&e.message)||e); }
+    addBtn.disabled=false;
+  };
+
+  // --- Section 2: custom OpenAI/Anthropic-compatible endpoint ---
+  const s2=document.createElement("div"); s2.className="mform";
+  s2.innerHTML =
+    '<h4>Custom endpoint</h4>'
+    + '<div class="sub">Point BINNY at a self-hosted or non-default OpenAI- or Anthropic-compatible server. Leave the key blank for a keyless local server (no Authorization header is sent).</div>';
+  const f = {
+    id: mkInput("Name", "my-llm"),
+    kind: null,
+    base: mkInput("Base URL", "http://localhost:8000/v1"),
+    model: mkInput("Model id", "my-model"),
+    key: mkInput("API key (optional)", "blank for keyless", "password"),
+  };
+  const kindSel=document.createElement("select");
+  for(const [v,t] of [["openai","OpenAI-compatible"],["anthropic","Anthropic-compatible"]]){ const o=document.createElement("option"); o.value=v; o.textContent=t; kindSel.appendChild(o); }
+  const kindL=document.createElement("label"); kindL.textContent="Kind"; kindL.appendChild(kindSel); f.kind=kindL;
+  const rowA=document.createElement("div"); rowA.className="frow"; rowA.appendChild(f.id); rowA.appendChild(f.kind);
+  const rowB=document.createElement("div"); rowB.className="frow"; rowB.appendChild(f.base); rowB.appendChild(f.model);
+  const rowC=document.createElement("div"); rowC.className="frow"; rowC.appendChild(f.key);
+  const act2=document.createElement("div"); act2.className="act";
+  const saveBtn=document.createElement("button"); saveBtn.textContent="Add endpoint & use";
+  const msg2=document.createElement("span"); msg2.className="msg";
+  act2.appendChild(saveBtn); act2.appendChild(msg2);
+  s2.appendChild(rowA); s2.appendChild(rowB); s2.appendChild(rowC); s2.appendChild(act2);
+  body.appendChild(s2);
+
+  saveBtn.onclick = async ()=>{
+    const id=f.id.querySelector("input").value.trim();
+    const base=f.base.querySelector("input").value.trim();
+    const model=f.model.querySelector("input").value.trim();
+    const key=f.key.querySelector("input").value.trim();
+    const kind=kindSel.value;
+    if(!id||!base||!model){ msg2.className="msg err"; msg2.textContent="Name, base URL and a model id are required."; return; }
+    saveBtn.disabled=true; msg2.className="msg"; msg2.textContent="Saving…";
+    try{
+      await postJSON("/api/provider",{id, kind, baseURL:base, key, models:[model]});
+      await loadModels(id+": "+model);
+      msg2.className="msg ok"; msg2.textContent="Endpoint added — now selected in the picker.";
+    }catch(e){ msg2.className="msg err"; msg2.textContent=String((e&&e.message)||e); }
+    saveBtn.disabled=false;
+  };
+}
+function mkInput(label, placeholder, type){
+  const l=document.createElement("label"); l.textContent=label;
+  const i=document.createElement("input"); i.placeholder=placeholder||""; i.autocomplete="off"; i.spellcheck=false; if(type) i.type=type;
+  l.appendChild(i); return l;
 }
 $("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
 

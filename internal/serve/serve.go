@@ -36,6 +36,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,12 @@ type Options struct {
 	Providers []config.Provider // configured providers, for chat with cloud models
 	Endpoints config.Endpoints  // backend + Keycloak URLs for connected mode
 	OnListen  func(url string)  // called once the server is bound (the real port when Addr ends in :0)
+	// PortFallback makes a busy fixed port fall back to the next few ports
+	// instead of failing. BINNY Desktop sets this so it binds a STABLE port
+	// (8899) across restarts: the chat history lives in the browser's
+	// localStorage, which is keyed by origin (host+port), so a random port every
+	// launch — the old default — silently wiped every conversation on restart.
+	PortFallback bool
 }
 
 // Run starts the HTTP server and blocks until the context is cancelled or the
@@ -80,7 +87,7 @@ func Run(ctx context.Context, opts Options) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ln, err := net.Listen("tcp", opts.Addr)
+	ln, err := listen(opts.Addr, opts.PortFallback)
 	if err != nil {
 		return fmt.Errorf("binny --serve: cannot bind %s: %w", opts.Addr, err)
 	}
@@ -107,6 +114,28 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return err
 	}
+}
+
+// listen binds addr. With fallback and a fixed (non-zero) port that's already in
+// use, it tries the next few ports so BINNY Desktop keeps a stable origin across
+// restarts instead of failing or jumping to a random port (which would wipe the
+// browser-stored chat history). A :0 port, or fallback off, binds exactly once.
+func listen(addr string, fallback bool) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err == nil || !fallback {
+		return ln, err
+	}
+	host, portStr, splitErr := net.SplitHostPort(addr)
+	port, atoiErr := strconv.Atoi(portStr)
+	if splitErr != nil || atoiErr != nil || port == 0 {
+		return ln, err // can't reason about the port — return the original result
+	}
+	for p := port + 1; p <= port+9; p++ {
+		if ln, e := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p))); e == nil {
+			return ln, nil
+		}
+	}
+	return nil, err // give back the original bind error
 }
 
 type server struct {
@@ -287,6 +316,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/key", s.handleKey)
+	mux.HandleFunc("/api/models", s.handleModels)
+	mux.HandleFunc("/api/model", s.handleAddModel)
+	mux.HandleFunc("/api/provider", s.handleAddProvider)
 	mux.HandleFunc("/api/local-models", s.handleLocalModels)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -370,36 +402,108 @@ func (s *server) handleKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// setProviderKey persists a provider's key to disk and applies it to the live
-// in-memory registry, under the lock so a concurrent chat sees a consistent
-// provider. An empty key clears a stored key (falling back to the env var).
-func (s *server) setProviderKey(id, key string) error {
+// withConfig loads the on-disk config, applies fn (which persists via one of the
+// config mutators), and refreshes the live in-memory registry to match — all
+// under the lock so a concurrent chat sees a consistent provider list. This is
+// the single path through which the UI edits providers, keys, models and
+// endpoints without a restart.
+func (s *server) withConfig(fn func(*config.Config) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var found *config.Provider
-	for i := range s.opts.Providers {
-		if s.opts.Providers[i].ID == id {
-			found = &s.opts.Providers[i]
-			break
-		}
-	}
-	if found == nil {
-		return fmt.Errorf("unknown provider %q", id)
-	}
-	// Persist: load the on-disk config, apply, save. Seeded providers are always
-	// present (Load reseeds an empty list); append if the file somehow lacks it.
 	cfg, _, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg.Find(id) == nil {
-		cfg.Providers = append(cfg.Providers, *found)
-	}
-	if err := cfg.SetKey(id, key); err != nil {
+	if err := fn(cfg); err != nil {
 		return err
 	}
-	found.APIKey = key // apply to the live registry
+	s.opts.Providers = cfg.Providers // fn persisted; keep memory == disk
 	return nil
+}
+
+// setProviderKey persists a provider's key and applies it live. An empty key
+// clears a stored key (falling back to the env var).
+func (s *server) setProviderKey(id, key string) error {
+	return s.withConfig(func(cfg *config.Config) error { return cfg.SetKey(id, key) })
+}
+
+// handleModels does live model discovery for a configured provider (GET
+// /models), so the picker can show a provider's real, current catalog — e.g. a
+// newer kimi model the shipped list doesn't name — not just the static config.
+func (s *server) handleModels(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("providerId")
+	s.mu.RLock()
+	var prov *config.Provider
+	for i := range s.opts.Providers {
+		if s.opts.Providers[i].ID == id {
+			p := s.opts.Providers[i]
+			prov = &p
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if prov == nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("unknown provider %q", id))
+		return
+	}
+	models, live := llm.ListModels(r.Context(), *prov)
+	writeJSON(w, http.StatusOK, map[string]any{"models": models, "live": live})
+}
+
+// handleAddModel pins a model id to a provider's selectable list, so a model the
+// shipped list doesn't name (e.g. kimi-k3.1-pro) can be picked and remembered.
+func (s *server) handleAddModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var req struct {
+		ProviderID string `json:"providerId"`
+		Model      string `json:"model"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad request: "+err.Error())
+		return
+	}
+	if err := s.withConfig(func(cfg *config.Config) error { return cfg.AddModel(req.ProviderID, req.Model) }); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleAddProvider adds (or replaces) a custom OpenAI/Anthropic-compatible
+// provider — a self-hosted or otherwise non-default endpoint — so it shows up in
+// the picker. An empty key marks it keyless.
+func (s *server) handleAddProvider(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var req struct {
+		ID      string   `json:"id"`
+		Kind    string   `json:"kind"`
+		BaseURL string   `json:"baseURL"`
+		Key     string   `json:"key"`
+		Models  []string `json:"models"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad request: "+err.Error())
+		return
+	}
+	kind := config.ProviderKind(req.Kind)
+	if kind == "" {
+		kind = config.KindOpenAI
+	}
+	if err := s.withConfig(func(cfg *config.Config) error {
+		return cfg.AddProvider(config.Provider{
+			ID: req.ID, Kind: kind, BaseURL: req.BaseURL, APIKey: req.Key, Models: req.Models,
+		})
+	}); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *server) handleLocalModels(w http.ResponseWriter, r *http.Request) {

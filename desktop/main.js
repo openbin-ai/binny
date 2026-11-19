@@ -31,7 +31,25 @@ function binnyPath() {
   return 'binny'; // from PATH
 }
 
-function freePort() {
+// canBind resolves true if nothing is already listening on the port.
+function canBind(p) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(false));
+    s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
+}
+
+// stablePort returns a DETERMINISTIC loopback port: 8899 if free, else the next
+// few. The chat history lives in the renderer's localStorage, which is keyed by
+// origin (host+port) — a random port every launch wiped every saved chat on
+// restart. Preferring a fixed port keeps the origin (and the history) stable.
+async function stablePort() {
+  for (let p = 8899; p <= 8899 + 9; p++) {
+    if (await canBind(p)) return p;
+  }
+  // Everything in range is busy — fall back to a random free port (history for
+  // this unusual launch won't match earlier ones, but at least it starts).
   return new Promise((resolve, reject) => {
     const s = net.createServer();
     s.on('error', reject);
@@ -63,7 +81,7 @@ function waitHealth(p, tries = 60) {
 
 async function startSidecar() {
   if (sidecar) { try { sidecar.kill(); } catch (_) {} sidecar = null; }
-  port = await freePort();
+  port = await stablePort();
   const args = ['--serve', '--serve-addr', `127.0.0.1:${port}`];
   if (serveDir) args.push('--serve-dir', serveDir);
   sidecar = spawn(binnyPath(), args, { stdio: 'inherit' });
