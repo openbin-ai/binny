@@ -120,7 +120,8 @@ func (p *anthropicProvider) Stream(ctx context.Context, req Request, onText func
 	if err != nil {
 		return nil, err
 	}
-	resp, err := postSSE(ctx, p.http, strings.TrimRight(p.baseURL, "/")+"/v1/messages",
+	endpoint := strings.TrimRight(p.baseURL, "/") + "/v1/messages"
+	resp, err := postSSE(ctx, p.http, endpoint,
 		map[string]string{
 			"x-api-key":         p.apiKey,
 			"anthropic-version": "2023-06-01",
@@ -128,7 +129,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, req Request, onText func
 			"accept":            "text/event-stream",
 		}, raw)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic request: %w", err)
+		return nil, describeRequestErr(p.id, endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {

@@ -132,9 +132,10 @@ func (p *openAIProvider) Stream(ctx context.Context, req Request, onText func(st
 	if p.apiKey != "" { // a local server (Ollama, LM Studio) has no key to send
 		headers["Authorization"] = "Bearer " + p.apiKey
 	}
-	resp, err := postSSE(ctx, p.http, strings.TrimRight(p.baseURL, "/")+"/chat/completions", headers, raw)
+	endpoint := strings.TrimRight(p.baseURL, "/") + "/chat/completions"
+	resp, err := postSSE(ctx, p.http, endpoint, headers, raw)
 	if err != nil {
-		return nil, fmt.Errorf("openai request: %w", err)
+		return nil, describeRequestErr(p.id, endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
