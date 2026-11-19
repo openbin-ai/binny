@@ -254,7 +254,7 @@
   <div class="focus" id="settings">
     <button id="settingsBtn" type="button" title="Token budget & response limit">Settings</button>
     <div class="focus-menu menu1" id="settingsMenu" hidden>
-      <label class="fld">Max response tokens<input id="setMaxTok" type="number" min="256" max="16384" step="256" value="2048"></label>
+      <label class="fld">Max response tokens<input id="setMaxTok" type="number" min="256" max="32768" step="256" value="8192"></label>
       <label class="fld">Context budget (tokens)<input id="setBudget" type="number" min="4000" step="1000" value="128000"></label>
       <button id="compactBtn" class="menu-btn" type="button">Compact context now</button>
       <div class="menu-note" id="compactNote">Summarize the conversation to free up the window.</div>
@@ -397,7 +397,7 @@ const state = {
   artifacts: [],      // {title, language, kind, content}
   highlights: [],     // {name, kind:"function"|"file", line, tag, note, pushed}
   tok: {ctx:0, sess:0}, // context size (last turn) and session total
-  maxTokens: 2048,    // output cap per turn
+  maxTokens: 8192,    // output cap per turn (fits a full write_artifact)
   budget: 128000,     // context budget; meter warns as it fills
   projectId: null,    // backend project id when a cloud project is open (null = local tree)
   projectName: "",

@@ -738,9 +738,16 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
+	// Output cap per turn. The old default (2048) was far too small: a single
+	// write_artifact (a whole script) overflowed it, so the tool_use block was
+	// truncated mid-JSON and the call failed. Default generously and CLAMP an
+	// over-limit request instead of resetting it to a tiny value.
 	maxTok := req.MaxTokens
-	if maxTok <= 0 || maxTok > 16384 {
-		maxTok = 2048
+	if maxTok <= 0 {
+		maxTok = 8192
+	}
+	if maxTok > 32768 {
+		maxTok = 32768
 	}
 	// Route long-tool progress (decompile_sample) to this stream so it stays
 	// alive; clear the sink when the request ends.

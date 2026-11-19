@@ -179,6 +179,64 @@ func TestAgentEmitsArtifactAndUsage(t *testing.T) {
 	}
 }
 
+// truncatedProvider emits a write_artifact whose argument JSON was cut off by
+// the output-token cap (stop_reason=max_tokens), then — after getting the error
+// tool_result — finishes with text.
+type truncatedProvider struct{ turn int }
+
+func (f *truncatedProvider) Name() string { return "fake" }
+func (f *truncatedProvider) Stream(ctx context.Context, req llm.Request, onText func(string)) (*llm.Response, error) {
+	f.turn++
+	if f.turn == 1 {
+		return &llm.Response{
+			StopReason: llm.StopMaxTokens,
+			Blocks: []llm.Block{{
+				Kind: llm.BlockToolUse, ToolID: "t1", ToolName: "write_artifact",
+				Input: json.RawMessage(`{"title":"triage","language":"python","content":"#!/usr/bin/env python3\nprint('`), // truncated mid-string
+			}},
+		}, nil
+	}
+	return &llm.Response{StopReason: llm.StopEndTurn, Model: "fake", Blocks: []llm.Block{llm.TextBlock("Sent a shorter version.")}}, nil
+}
+
+// A tool call cut off by the token cap must NOT be executed as-is: the model gets
+// a clear error tool_result (so it can retry smaller) and the UI sees a failed
+// tool_result — never a silently-run broken call, and no dead stream.
+func TestTruncatedToolCallIsReportedNotRun(t *testing.T) {
+	s := &server{opts: Options{}}
+	var toolResults []map[string]any
+	var sawArtifact bool
+	send := func(ev map[string]any) {
+		switch ev["type"] {
+		case "tool_result":
+			toolResults = append(toolResults, ev)
+		case "artifact":
+			sawArtifact = true
+		}
+	}
+	msgs := s.runAgentLoop(context.Background(), &truncatedProvider{}, llm.Request{
+		Messages: []llm.Message{llm.UserText("write a triage script")},
+		Tools:    s.agentTools(),
+	}, send)
+
+	if len(toolResults) == 0 || toolResults[0]["ok"] != false {
+		t.Fatalf("expected a failed tool_result for the truncated call, got %v", toolResults)
+	}
+	prev, _ := toolResults[0]["preview"].(string)
+	if !strings.Contains(prev, "cut off") {
+		t.Errorf("tool_result should explain the truncation, got %q", prev)
+	}
+	if sawArtifact {
+		t.Error("a truncated write_artifact must not produce an artifact")
+	}
+	// The model must have been fed a tool_result so the loop could continue and
+	// finish (truncated turn recorded + results + final text = at least 3 msgs
+	// beyond the initial user turn).
+	if len(msgs) < 3 {
+		t.Errorf("loop didn't continue after truncation: %d messages", len(msgs))
+	}
+}
+
 func contains(ss []string, s string) bool {
 	for _, x := range ss {
 		if x == s {

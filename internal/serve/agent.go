@@ -639,10 +639,18 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 			"cached":  u.CacheReadTokens,
 			"context": u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens,
 		})
+		// The turn hit the output-token cap: anything it was emitting — most often
+		// a large write_artifact — was cut off mid-stream, so a tool call here may
+		// carry truncated (invalid) argument JSON. We detect that per-call below.
+		truncated := resp.StopReason == llm.StopMaxTokens
 		calls := resp.ToolCalls()
 		if len(calls) == 0 {
 			req.Messages = append(req.Messages, resp.AsMessage()) // remember the final answer
-			send(map[string]any{"type": "done", "model": resp.Model})
+			done := map[string]any{"type": "done", "model": resp.Model}
+			if truncated {
+				done["note"] = "reply hit the output-token limit and was cut off — raise “Max response tokens” in Settings and ask me to continue"
+			}
+			send(done)
 			return req.Messages
 		}
 		// Record the assistant's tool_use turn, then answer each call.
@@ -650,6 +658,18 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		results := make([]llm.Block, 0, len(calls))
 		for _, c := range calls {
 			send(map[string]any{"type": "tool_call", "name": c.Name, "input": toolCallInput(c.Input)})
+			// A tool call whose arguments didn't finish streaming (invalid JSON,
+			// essentially always the output-token cap) can't be run. Feed the model
+			// a clear error so it retries smaller instead of us executing garbage,
+			// and tell the UI why.
+			if !json.Valid(c.Input) {
+				msg := "arguments were cut off before the call finished — almost certainly the output-token limit"
+				send(map[string]any{"type": "tool_result", "name": c.Name, "ok": false,
+					"preview": msg + ". Raise “Max response tokens” in Settings, or re-issue the call with shorter content."})
+				results = append(results, llm.ToolResult(c.ID,
+					"error: "+msg+". Re-issue this tool call with shorter arguments (for a large artifact, split it), or tell the user to raise the output-token limit.", true))
+				continue
+			}
 			var out string
 			var isErr bool
 			switch c.Name {
