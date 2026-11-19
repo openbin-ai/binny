@@ -649,7 +649,7 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		req.Messages = append(req.Messages, resp.AsMessage())
 		results := make([]llm.Block, 0, len(calls))
 		for _, c := range calls {
-			send(map[string]any{"type": "tool_call", "name": c.Name, "input": json.RawMessage(c.Input)})
+			send(map[string]any{"type": "tool_call", "name": c.Name, "input": toolCallInput(c.Input)})
 			var out string
 			var isErr bool
 			switch c.Name {
@@ -708,6 +708,20 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 	send(map[string]any{"type": "usage", "input": u.InputTokens + u.CacheCreationTokens, "output": u.OutputTokens, "cached": u.CacheReadTokens, "context": u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens})
 	send(map[string]any{"type": "done", "model": resp.Model, "note": "reached the tool-call limit — concluded from findings so far"})
 	return req.Messages
+}
+
+// toolCallInput returns a value safe to embed in the tool_call SSE event. The
+// model's raw arguments are valid JSON almost always, but local models (and a
+// stream cut mid-call) sometimes emit truncated or malformed JSON. Embedding a
+// malformed json.RawMessage would make the event un-marshalable; rather than
+// lose the call entirely, fall back to a JSON string of the raw text so the
+// tool card still shows what the model tried. (The tool itself handles the bad
+// input on its own and reports a clean tool_result error.)
+func toolCallInput(raw json.RawMessage) any {
+	if len(raw) > 0 && json.Valid(raw) {
+		return raw
+	}
+	return string(raw)
 }
 
 func preview(s string) string {

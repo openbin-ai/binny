@@ -179,6 +179,20 @@
   .modal .mhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen panel separator */
   .modal .mhead b{font-size:14px}
   .modal .mbody{padding:14px 16px;overflow:auto}
+  .keyrow{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen list separator */
+  .keyrow:last-child{border-bottom:none}
+  .keyrow .kname{font-size:13px;color:var(--fg)}
+  .keyrow .kmeta{font-size:11px;color:var(--muted)}
+  .keyrow .kstate{font-size:11px;font-weight:600}
+  .keyrow .kstate.on{color:var(--ok,#3fb950)}
+  .keyrow .kstate.off{color:var(--muted)}
+  .keyrow input{grid-column:1/2;font-size:13px;color:var(--fg);background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:7px 9px;width:100%}
+  .keyrow input:focus{outline:none;border-color:var(--accent)}
+  .keyrow .kbtns{grid-column:2/3;display:flex;gap:6px}
+  .keyrow button{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:7px 11px;font-size:12.5px;color:var(--fg);cursor:pointer}
+  .keyrow button.save{background:var(--accent);border-color:var(--accent);color:#fff}
+  .keyrow button:disabled{opacity:.5;cursor:default}
+  .keysNote{font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:10px}
   .acct{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
   .plist{display:flex;flex-direction:column;gap:6px}
   .prow{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer}
@@ -226,6 +240,8 @@
       <label class="fld">Context budget (tokens)<input id="setBudget" type="number" min="4000" step="1000" value="128000"></label>
       <button id="compactBtn" class="menu-btn" type="button">Compact context now</button>
       <div class="menu-note" id="compactNote">Summarize the conversation to free up the window.</div>
+      <button id="keysBtn" class="menu-btn" type="button">API keys…</button>
+      <div class="menu-note">Add your own provider key (Anthropic, OpenAI, …) to use cloud models. No openbin account needed.</div>
     </div>
   </div>
   <button id="cloudBtn" title="Sign in and open one of your cloud projects">Cloud</button>
@@ -319,6 +335,17 @@
       <button id="cloudClose" title="Close">Close</button>
     </div>
     <div class="mbody" id="cloudBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="keysModal">
+  <div class="modal">
+    <div class="mhead">
+      <b>API keys</b>
+      <div class="grow"></div>
+      <button id="keysClose" title="Close">Close</button>
+    </div>
+    <div class="mbody" id="keysBody"></div>
   </div>
 </div>
 
@@ -482,6 +509,59 @@ async function compactChat(){
   saveConvo();
 }
 function toggle(drawer, btn){ $(drawer).classList.toggle("open"); $(btn).classList.toggle("on", $(drawer).classList.contains("open")); }
+
+/* ---- API keys (BYOK, no account needed) ---- */
+$("#keysBtn").onclick = ()=>{ $("#settingsMenu").hidden=true; openKeys(); };
+$("#keysClose").onclick = ()=>$("#keysModal").classList.remove("open");
+$("#keysModal").addEventListener("click", e=>{ if(e.target===$("#keysModal")) $("#keysModal").classList.remove("open"); });
+async function openKeys(){
+  $("#keysModal").classList.add("open");
+  const body = $("#keysBody");
+  body.innerHTML = '<div class="status">Loading providers…</div>';
+  let providers;
+  try{ ({providers} = await api("/api/config")); }
+  catch(e){ body.innerHTML = '<div class="status err">Couldn\'t load providers: '+esc(String(e))+'</div>'; return; }
+  const cloud = (providers||[]).filter(p=>!p.local);
+  body.innerHTML = '<div class="keysNote">Keys are stored on this machine only (<code>~/.config/binny/config.json</code>, mode 0600) and sent straight to the provider — never to openbin. You don\'t need an account. Local servers (Ollama, LM Studio) need no key and aren\'t listed here.</div>';
+  for(const p of cloud){
+    const row = document.createElement("div"); row.className="keyrow";
+    const ready = p.ready;
+    const via = p.storedKey ? "key saved on this machine"
+      : p.envKey ? "using "+esc(p.keyEnv||"env var")
+      : p.kind==="bedrock" ? "uses your AWS credentials"
+      : "no key yet";
+    const stateCls = ready ? "on" : "off";
+    const stateTxt = ready ? "ready" : "needs a key";
+    row.innerHTML =
+      '<div><div class="kname">'+esc(p.id)+' <span class="kmeta">· '+esc(p.kind)+'</span></div>'
+      + '<div class="kmeta">'+via+' — <span class="kstate '+stateCls+'">'+stateTxt+'</span></div></div>'
+      + '<div class="kmeta" style="grid-column:2/3;text-align:right">'+esc((p.models||[]).length?p.models[0]:"")+'</div>';
+    if(p.kind!=="bedrock"){
+      const inp = document.createElement("input");
+      inp.type="password"; inp.autocomplete="off"; inp.spellcheck=false;
+      inp.placeholder = p.storedKey ? "Replace saved key…" : (p.keyEnv ? "Paste "+p.id+" key (or set "+p.keyEnv+")" : "Paste "+p.id+" API key");
+      const btns = document.createElement("div"); btns.className="kbtns";
+      const save = document.createElement("button"); save.className="save"; save.textContent="Save"; save.disabled=true;
+      const rm = document.createElement("button"); rm.textContent="Remove"; rm.style.display = p.storedKey ? "" : "none";
+      inp.oninput = ()=>{ save.disabled = !inp.value.trim(); };
+      inp.onkeydown = e=>{ if(e.key==="Enter" && inp.value.trim()) save.click(); };
+      save.onclick = ()=>setKey(p.id, inp.value.trim(), save);
+      rm.onclick = ()=>setKey(p.id, "", rm);
+      btns.appendChild(save); btns.appendChild(rm);
+      row.appendChild(inp); row.appendChild(btns);
+    }
+    body.appendChild(row);
+  }
+}
+async function setKey(providerId, key, btn){
+  const old = btn.textContent; btn.disabled=true; btn.textContent = key ? "Saving…" : "Removing…";
+  try{
+    const res = await fetch("/api/key",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({providerId, key})});
+    if(!res.ok){ let m="Request failed ("+res.status+")."; try{ const j=await res.json(); if(j&&j.error) m=j.error; }catch{} throw new Error(m); }
+    await loadModels();   // the newly-ready provider's models now appear in the picker
+    await openKeys();     // re-render with fresh ready/stored state
+  }catch(e){ btn.disabled=false; btn.textContent=old; alert("Couldn't save key: "+((e&&e.message)||e)); }
+}
 $("#tTheme").onclick = ()=>{ const h=document.documentElement; h.dataset.theme = h.dataset.theme==="dark"?"light":"dark"; };
 
 /* ---- file tree ---- */
@@ -754,7 +834,10 @@ async function streamSSE(url, opts, onEvent){
     while((idx = buf.indexOf("\n\n")) >= 0){
       const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
       if(!line.startsWith("data:")) continue;
-      await onEvent(JSON.parse(line.slice(5).trim()));
+      const payload = line.slice(5).trim();
+      if(!payload) continue; // keep-alive / empty frame — nothing to parse
+      let ev; try{ ev = JSON.parse(payload); }catch(e){ console.warn("[binny] skipped unparseable SSE event:", payload, e); continue; }
+      await onEvent(ev);
     }
   }
 }
@@ -1164,7 +1247,9 @@ async function send(prefix){
       while((idx = buf.indexOf("\n\n")) >= 0){
         const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
         if(!line.startsWith("data:")) continue;
-        const ev = JSON.parse(line.slice(5).trim());
+        const payload = line.slice(5).trim();
+        if(!payload) continue; // keep-alive / empty frame — nothing to parse
+        let ev; try{ ev = JSON.parse(payload); }catch(err){ console.warn("[binny] skipped unparseable SSE event:", payload, err); continue; }
         if(ev.type==="chunk"){ if(!seg){ seg=textSeg(); segAcc=""; } segAcc+=ev.text; fullAcc+=ev.text; seg.innerHTML=renderMarkdown(segAcc); setWork("Writing…"); }
         else if(ev.type==="tool_call"){ seg=null; pendingCard=addToolCard(flow, ev.name, ev.input); setWork("Running "+ev.name+"…"); }
         else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork("Thinking…"); }

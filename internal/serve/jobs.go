@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -37,7 +36,7 @@ type job struct {
 }
 
 func (j *job) emit(ev map[string]any) {
-	b, _ := json.Marshal(ev)
+	b := marshalSSE(ev)
 	j.mu.Lock()
 	j.events = append(j.events, b)
 	close(j.wake)

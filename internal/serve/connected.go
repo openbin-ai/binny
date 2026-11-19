@@ -284,8 +284,26 @@ func sseSender(w http.ResponseWriter) (func(map[string]any), bool) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	return func(ev map[string]any) {
-		b, _ := json.Marshal(ev)
-		fmt.Fprintf(w, "data: %s\n\n", b)
+		fmt.Fprintf(w, "data: %s\n\n", marshalSSE(ev))
 		flusher.Flush()
 	}, true
+}
+
+// marshalSSE encodes an SSE event payload and NEVER returns empty or invalid
+// JSON. json.Marshal fails when a map value can't be encoded — most commonly a
+// tool_call carrying a json.RawMessage of malformed/truncated argument JSON
+// (local models do this often, as does a stream cut mid-call). The error used to
+// be dropped, so a bare "data: \n\n" went out and the browser died on
+// JSON.parse("") — "unexpected end of data" — killing the whole chat stream. On
+// failure we now emit a valid error event instead, so one bad frame can't take
+// down the connection.
+func marshalSSE(ev map[string]any) []byte {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		b, _ = json.Marshal(map[string]any{
+			"type":  "error",
+			"error": fmt.Sprintf("binny couldn't encode a %v event: %v", ev["type"], err),
+		})
+	}
+	return b
 }

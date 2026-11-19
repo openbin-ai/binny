@@ -415,8 +415,10 @@ func (m *Model) viewPicker() string {
 	var b strings.Builder
 	b.WriteString(banner() + "\n\n")
 	if m.loadErr != nil && len(m.projects) == 0 {
-		b.WriteString(styleErr.Render("Couldn't load projects: "+m.loadErr.Error()) + "\n\n")
-		b.WriteString(styleDim.Render("Is `openbin login` done? Press r to retry, esc to go back.") + "\n")
+		b.WriteString(styleWarn.Render("No cloud projects loaded ("+truncate(m.loadErr.Error(), 60)+").") + "\n\n")
+		b.WriteString(styleDim.Render("Cloud projects need `openbin login` — but you don't need an account to use BINNY.") + "\n")
+		b.WriteString(styleDim.Render("Press esc, then \"Decompile a local binary or APK\" to analyze a file locally with your own key (BYOK).") + "\n\n")
+		b.WriteString(styleDim.Render("r retry · esc back") + "\n")
 		return b.String()
 	}
 	b.WriteString(styleHeader.Render("Select a project") + styleDim.Render("  (↑/↓ move · enter select · r refresh · esc back)") + "\n\n")

@@ -286,6 +286,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/key", s.handleKey)
 	mux.HandleFunc("/api/local-models", s.handleLocalModels)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -315,20 +316,90 @@ func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"version": s.opts.Version})
 }
 
-// handleConfig lists configured providers WITHOUT keys, so the picker can offer
-// cloud models alongside detected local ones.
+// handleConfig lists configured providers WITHOUT leaking the key value itself,
+// so the picker can offer cloud models alongside detected local ones and the
+// Settings → API keys panel can show which providers still need one.
 func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	type prov struct {
-		ID     string   `json:"id"`
-		Kind   string   `json:"kind"`
-		Models []string `json:"models"`
-		Ready  bool     `json:"ready"`
+		ID        string   `json:"id"`
+		Kind      string   `json:"kind"`
+		BaseURL   string   `json:"baseURL,omitempty"`
+		Models    []string `json:"models"`
+		Ready     bool     `json:"ready"`     // usable now (key set, or keyless/bedrock)
+		Local     bool     `json:"local"`     // keyless on-machine server
+		KeyEnv    string   `json:"keyEnv"`    // env var that also supplies a key, if any
+		StoredKey bool     `json:"storedKey"` // a key is saved on disk for this provider
+		EnvKey    bool     `json:"envKey"`    // a key is currently present via KeyEnv
 	}
-	out := make([]prov, 0, len(s.opts.Providers))
-	for _, p := range s.opts.Providers {
-		out = append(out, prov{ID: p.ID, Kind: string(p.Kind), Models: p.Models, Ready: p.HasKey()})
+	s.mu.RLock()
+	provs := append([]config.Provider(nil), s.opts.Providers...)
+	s.mu.RUnlock()
+	out := make([]prov, 0, len(provs))
+	for _, p := range provs {
+		out = append(out, prov{
+			ID: p.ID, Kind: string(p.Kind), BaseURL: p.BaseURL, Models: p.Models,
+			Ready: p.HasKey(), Local: p.Local, KeyEnv: p.APIKeyEnv,
+			StoredKey: p.APIKey != "",
+			EnvKey:    p.APIKey == "" && p.APIKeyEnv != "" && os.Getenv(p.APIKeyEnv) != "",
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": out})
+}
+
+// handleKey stores (or clears, when key is empty) a BYOK API key for a provider.
+// The key is written to ~/.config/binny/config.json (0600) and applied in memory
+// at once, so the next chat uses it without a restart. This is what lets a user
+// run BINNY locally with their own key and no openbin account.
+func (s *server) handleKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var req struct {
+		ProviderID string `json:"providerId"`
+		Key        string `json:"key"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad request: "+err.Error())
+		return
+	}
+	if err := s.setProviderKey(req.ProviderID, strings.TrimSpace(req.Key)); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// setProviderKey persists a provider's key to disk and applies it to the live
+// in-memory registry, under the lock so a concurrent chat sees a consistent
+// provider. An empty key clears a stored key (falling back to the env var).
+func (s *server) setProviderKey(id, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var found *config.Provider
+	for i := range s.opts.Providers {
+		if s.opts.Providers[i].ID == id {
+			found = &s.opts.Providers[i]
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("unknown provider %q", id)
+	}
+	// Persist: load the on-disk config, apply, save. Seeded providers are always
+	// present (Load reseeds an empty list); append if the file somehow lacks it.
+	cfg, _, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.Find(id) == nil {
+		cfg.Providers = append(cfg.Providers, *found)
+	}
+	if err := cfg.SetKey(id, key); err != nil {
+		return err
+	}
+	found.APIKey = key // apply to the live registry
+	return nil
 }
 
 func (s *server) handleLocalModels(w http.ResponseWriter, r *http.Request) {
@@ -559,8 +630,7 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	send := func(ev map[string]any) {
-		b, _ := json.Marshal(ev)
-		fmt.Fprintf(w, "data: %s\n\n", b)
+		fmt.Fprintf(w, "data: %s\n\n", marshalSSE(ev))
 		flusher.Flush()
 	}
 
@@ -599,6 +669,8 @@ func (s *server) resolveProvider(req chatRequest) (config.Provider, error) {
 			Models:  []string{req.Model},
 		}, nil
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, p := range s.opts.Providers {
 		if p.ID == req.ProviderID {
 			if !p.HasKey() {
