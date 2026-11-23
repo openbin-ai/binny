@@ -28,6 +28,34 @@ type Investigation struct {
 	Objectives     []Objective
 	Artifacts      []Artifact // extraction outputs (scripts, decrypted blobs)
 	RenameProposal []RenameSuggestion
+
+	// Notes is the crew's shared notebook: what a function / symbol / address
+	// means, so the next crew member doesn't re-read it.
+	Notes []Note
+	// Verification says whether the findings went through a Parity pass:
+	// "" (a single-agent run, no crew), VerificationDone, or
+	// VerificationNone (a mission without Parity — the draft is unverified).
+	Verification string
+}
+
+// Verification states.
+const (
+	VerificationDone = "verified"
+	VerificationNone = "unverified"
+)
+
+// Parity's verdicts on a finding. An unset verdict means "not verified yet".
+const (
+	VerdictConfirmed  = "confirmed"
+	VerdictDowngraded = "downgraded"
+	VerdictRejected   = "rejected"
+)
+
+// Note is one shared-notebook entry, keyed by symbol.
+type Note struct {
+	Symbol  string // function name, symbol, address, or file:line
+	Meaning string // what it is / does
+	By      string // role id of the crew member who wrote it
 }
 
 // Finding is one evidence-grounded observation.
@@ -48,6 +76,17 @@ type Finding struct {
 	Mitigations     string   // what stands in the way (canary, NX, validation, permission…)
 	Remediation     string   // how to fix it
 	CVSS            string   // optional CVSS vector, e.g. CVSS:3.1/AV:N/…
+
+	// Crew provenance + verification. ID is assigned when the finding is
+	// recorded; FoundBy/Step say who recorded it and in which mission step;
+	// the verdict fields are Parity's.
+	ID          string // "F1", "F2", … stable handle for set_verdict
+	FoundBy     string // role id ("" on a single-agent run)
+	Step        int    // 1-based mission step that recorded it (0 = outside a step)
+	Verdict     string // "" | confirmed | downgraded | rejected
+	VerifiedBy  string // role id that set the verdict
+	VerdictNote string // why
+	WasSeverity string // the severity before a downgrade
 }
 
 // IsVuln reports whether a finding came through the vuln-mode schema.
@@ -58,6 +97,8 @@ type IOC struct {
 	Type        string // ip|domain|url|hash|path|mutex|registry|email|…
 	Value       string
 	EvidenceRef string
+	FoundBy     string // role id ("" on a single-agent run)
+	Step        int    // 1-based mission step that recorded it
 }
 
 // ReportSection is a draft report section (id/title/content), matching the
@@ -102,8 +143,103 @@ func (inv *Investigation) AddFinding(f Finding) error {
 	}
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
+	f.ID = fmt.Sprintf("F%d", len(inv.Findings)+1)
 	inv.Findings = append(inv.Findings, f)
 	return nil
+}
+
+// SetVerdict records Parity's verdict on a finding. A downgrade carries the
+// new (lower) severity. The reason is required: a verdict is a claim too.
+func (inv *Investigation) SetVerdict(id, verdict, severity, reason, by string) (Finding, error) {
+	verdict = strings.ToLower(strings.TrimSpace(verdict))
+	if verdict != VerdictConfirmed && verdict != VerdictDowngraded && verdict != VerdictRejected {
+		return Finding{}, fmt.Errorf("verdict %q must be confirmed, downgraded or rejected", verdict)
+	}
+	if strings.TrimSpace(reason) == "" {
+		return Finding{}, fmt.Errorf("a verdict needs a reason: say what you re-read and what it showed")
+	}
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	for i := range inv.Findings {
+		f := &inv.Findings[i]
+		if !strings.EqualFold(f.ID, strings.TrimSpace(id)) {
+			continue
+		}
+		if verdict == VerdictDowngraded {
+			severity = strings.ToLower(strings.TrimSpace(severity))
+			was := f.Severity
+			if f.WasSeverity != "" {
+				was = f.WasSeverity
+			}
+			to, ok := severityAtLeast[severity]
+			if !ok {
+				return Finding{}, fmt.Errorf("a downgrade needs the new severity (info | low | medium | high)")
+			}
+			if from, known := severityAtLeast[strings.ToLower(was)]; known && to >= from {
+				return Finding{}, fmt.Errorf("%s is %s — a downgrade must set a LOWER severity (use confirmed if it stands)", f.ID, was)
+			}
+			f.WasSeverity, f.Severity = was, severity
+		} else if f.WasSeverity != "" {
+			// A later confirm/reject undoes an earlier downgrade.
+			f.Severity, f.WasSeverity = f.WasSeverity, ""
+		}
+		f.Verdict, f.VerifiedBy, f.VerdictNote = verdict, by, strings.TrimSpace(reason)
+		return *f, nil
+	}
+	return Finding{}, fmt.Errorf("no finding %q (ids are F1, F2, … as listed)", id)
+}
+
+// Unverified returns the ids of findings that carry no verdict yet.
+func (inv *Investigation) Unverified() []string {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	var ids []string
+	for _, f := range inv.Findings {
+		if f.Verdict == "" {
+			ids = append(ids, f.ID)
+		}
+	}
+	return ids
+}
+
+// SetVerification records whether a Parity pass covered this investigation.
+func (inv *Investigation) SetVerification(v string) {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	inv.Verification = v
+}
+
+// AddNote upserts a shared-notebook entry by symbol (case-insensitive).
+func (inv *Investigation) AddNote(n Note) error {
+	n.Symbol, n.Meaning = strings.TrimSpace(n.Symbol), strings.TrimSpace(n.Meaning)
+	if n.Symbol == "" || n.Meaning == "" {
+		return fmt.Errorf("a note needs both a symbol and what it means")
+	}
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	for i := range inv.Notes {
+		if strings.EqualFold(inv.Notes[i].Symbol, n.Symbol) {
+			inv.Notes[i] = n
+			return nil
+		}
+	}
+	inv.Notes = append(inv.Notes, n)
+	return nil
+}
+
+// NotesMatching returns notebook entries whose symbol or meaning contains the
+// filter (case-insensitive); an empty filter returns them all.
+func (inv *Investigation) NotesMatching(filter string) []Note {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	var out []Note
+	for _, n := range inv.Notes {
+		if filter == "" || strings.Contains(strings.ToLower(n.Symbol), filter) || strings.Contains(strings.ToLower(n.Meaning), filter) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // AddIOC records an indicator. Returns an error if no evidence ref is supplied.
@@ -198,6 +334,9 @@ func (inv *Investigation) Snapshot() InvestigationSnapshot {
 		Sections:     append([]ReportSection(nil), inv.Sections...),
 		Objectives:   append([]Objective(nil), inv.Objectives...),
 		Artifacts:    append([]Artifact(nil), inv.Artifacts...),
+		Notes:        append([]Note(nil), inv.Notes...),
+		Renames:      append([]RenameSuggestion(nil), inv.RenameProposal...),
+		Verification: inv.Verification,
 	}
 }
 
@@ -210,6 +349,71 @@ type InvestigationSnapshot struct {
 	Sections     []ReportSection
 	Objectives   []Objective
 	Artifacts    []Artifact
+	Notes        []Note
+	Renames      []RenameSuggestion
+	Verification string
+}
+
+// verified reports whether verdicts should shape the summary: a Parity pass
+// ran, or some finding already carries a verdict.
+func (s InvestigationSnapshot) verified() bool {
+	if s.Verification == VerificationDone {
+		return true
+	}
+	for _, f := range s.Findings {
+		if f.Verdict != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// forDraft is the snapshot the report scaffold is built from: a vuln finding
+// Parity rejected becomes a ruled-out candidate (a negative result with its
+// reason) instead of an advisory.
+func (s InvestigationSnapshot) forDraft() InvestigationSnapshot {
+	out := s
+	out.Findings = append([]Finding(nil), s.Findings...)
+	for i := range out.Findings {
+		f := &out.Findings[i]
+		if f.Verdict == VerdictRejected && f.IsVuln() {
+			f.Reachability, f.Severity = "ruled_out", "info"
+			f.Note = strings.TrimSpace(f.Note + " — rejected on verification: " + f.VerdictNote)
+		}
+	}
+	return out
+}
+
+// verdictTag annotates a finding line with Parity's verdict.
+func verdictTag(f Finding) string {
+	switch f.Verdict {
+	case VerdictConfirmed:
+		return " ✔confirmed"
+	case VerdictDowngraded:
+		if f.WasSeverity != "" {
+			return " ▼downgraded from " + f.WasSeverity
+		}
+		return " ▼downgraded"
+	case VerdictRejected:
+		return " ✘rejected"
+	}
+	return " ?unverified"
+}
+
+// NotebookSummary renders the shared notebook, one entry per line.
+func (s InvestigationSnapshot) NotebookSummary() string {
+	if len(s.Notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, n := range s.Notes {
+		fmt.Fprintf(&b, "- %s — %s", n.Symbol, n.Meaning)
+		if n.By != "" {
+			fmt.Fprintf(&b, " (%s)", n.By)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // EvidenceSummary renders findings + IOCs + classification compactly, for
@@ -219,15 +423,39 @@ func (s InvestigationSnapshot) EvidenceSummary() string {
 	if len(s.MalwareTypes) > 0 {
 		fmt.Fprintf(&b, "Classification: %s (confidence: %s)\n", strings.Join(s.MalwareTypes, ", "), orUnknown(s.Confidence))
 	}
-	if !vulnSummary(&b, s.Findings) && len(s.Findings) > 0 {
-		b.WriteString("\nFindings:\n")
+	// Once Parity has weighed in, rejected findings leave the body of evidence
+	// (they are kept below as negative results) and the rest carry their verdict.
+	verified := s.verified()
+	live, rejected := s.Findings, []Finding(nil)
+	if verified {
+		live = nil
 		for _, f := range s.Findings {
+			if f.Verdict == VerdictRejected {
+				rejected = append(rejected, f)
+			} else {
+				live = append(live, f)
+			}
+		}
+	}
+	if !vulnSummary(&b, live, verified) && len(live) > 0 {
+		b.WriteString("\nFindings:\n")
+		for _, f := range live {
 			cwe := ""
 			if f.CWE != "" {
 				cwe = " " + f.CWE
 			}
-			fmt.Fprintf(&b, "- [%s/%s%s] %s (evidence: %s)\n",
-				f.Category, f.Severity, cwe, f.Note, strings.Join(f.EvidenceRefs, ", "))
+			tag := ""
+			if verified {
+				tag = verdictTag(f)
+			}
+			fmt.Fprintf(&b, "- [%s/%s%s%s] %s (evidence: %s)\n",
+				f.Category, f.Severity, cwe, tag, f.Note, strings.Join(f.EvidenceRefs, ", "))
+		}
+	}
+	if len(rejected) > 0 {
+		b.WriteString("\nRejected by verification (negative results — do NOT present these as findings; you may list them as checked-and-cleared):\n")
+		for _, f := range rejected {
+			fmt.Fprintf(&b, "- [%s] %s — rejected: %s\n", f.Category, f.Note, f.VerdictNote)
 		}
 	}
 	if len(s.IOCs) > 0 {
@@ -278,7 +506,7 @@ func orUnknown(s string) string {
 // confirmed bugs first, ruled-out candidates last — with every structured
 // field, so synthesis writes from the facts BINNY actually established.
 // Returns false when there are no vuln findings.
-func vulnSummary(b *strings.Builder, findings []Finding) bool {
+func vulnSummary(b *strings.Builder, findings []Finding, verified bool) bool {
 	groups := []struct{ key, title string }{
 		{"proven", "Vulnerabilities — reachability PROVEN"},
 		{"likely", "Vulnerabilities — reachability LIKELY (path partly established)"},
@@ -304,7 +532,11 @@ func vulnSummary(b *strings.Builder, findings []Finding) bool {
 		}
 		fmt.Fprintf(b, "\n%s:\n", g.title)
 		for _, f := range fs {
-			fmt.Fprintf(b, "- [%s %s/%s] %s\n", f.CWE, f.Category, f.Severity, f.Note)
+			tag := ""
+			if verified {
+				tag = verdictTag(f)
+			}
+			fmt.Fprintf(b, "- [%s %s/%s%s] %s\n", f.CWE, f.Category, f.Severity, tag, f.Note)
 			fmt.Fprintf(b, "    source: %s\n    sink: %s\n", f.Source, f.Sink)
 			if len(f.Path) > 0 {
 				fmt.Fprintf(b, "    path: %s\n", strings.Join(f.Path, " → "))

@@ -169,6 +169,19 @@
   /* Investigate is the secondary action — a neutral outline, so only Send carries the accent */
   .send.ghost{background:transparent;color:var(--fg);border-color:var(--border)}
   .send.ghost:hover{border-color:var(--accent);background:transparent}
+  .send.stop{background:transparent;color:var(--err);border-color:var(--err)}
+  .send.stop:hover{background:var(--err);color:#fff;border-color:var(--err)}
+  /* command palette (/) and crew mentions (@), floating above the input */
+  .composer .inner{position:relative}
+  .cmdmenu{position:absolute;left:20px;right:20px;bottom:calc(100% + 6px);z-index:30;max-height:264px;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 12px 30px rgba(0,0,0,.4)} /* popover floats — shadow allowed taste-skill-ignore */
+  .cmdmenu[hidden]{display:none}
+  .cmdrow{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:6px;font-size:12.5px;cursor:pointer}
+  .cmdrow.sel{background:var(--active)}
+  .cmdrow b{flex:none;font-family:var(--mono);font-weight:600} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .cmdrow .ch{flex:none;font-family:var(--mono);font-size:11.5px;color:var(--muted)} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+  .cmdrow .cd{min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .msg .who.crew{display:flex;align-items:center;gap:7px}
+  .msg.note .who{text-transform:none;letter-spacing:0;font-family:var(--mono)} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
   .ctxbar{max-width:760px;margin:0 auto 8px;padding:0 20px;font-size:12px;color:var(--muted)}
   .ctxbar b{color:var(--accent)}
 
@@ -231,6 +244,113 @@
   #binList .row .addr{color:var(--muted);margin-right:8px}
   #binList .row.ext{color:var(--muted)}
   #binList .str{padding:3px 8px;font-family:var(--mono);font-size:12px;color:#fbbf24;white-space:pre-wrap;word-break:break-all} /* taste-skill-ignore: code/ID/brand mono, allowed on app screens */
+
+  /* ---- crew ---- */
+  /* avatar: the crew member's art in a ring of its accent (falls back to an initial until its art ships) */
+  .av{display:inline-flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--panel2) center/86% no-repeat;box-shadow:0 0 0 2px var(--ac,var(--border));font-size:11px;font-weight:700;color:var(--ac,var(--muted));line-height:1}
+  .av.cap{background-color:#0b0d12;background-size:74%}
+  .av.sm{width:18px;height:18px;font-size:9px} .av.lg{width:44px;height:44px;font-size:17px}
+  @keyframes avpulse{0%,100%{box-shadow:0 0 0 2px var(--ac)}50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--ac) 35%,transparent)}}
+  /* on a tool card the ring is the call's status, not the accent */
+  .tool-card .av{width:18px;height:18px;font-size:9px;box-shadow:0 0 0 2px var(--warn)}
+  .tool-card.ok .av{box-shadow:0 0 0 2px var(--ok)} .tool-card.fail .av{box-shadow:0 0 0 2px var(--err)}
+  /* welcome lineup */
+  .lineup{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;max-width:680px;margin:22px auto 0;text-align:left}
+  .lineup .lu{display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}
+  .lineup .lu b{display:block;font-size:13px;color:var(--fg)} .lineup .lu span.lt{font-size:11.5px;line-height:1.35}
+  /* the mission track — the editor's row, lit up as the run's progress */
+  .track{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--panel);overflow-x:auto} /* taste-skill-ignore: app-screen panel separator */
+  .track[hidden]{display:none}
+  .track .tname{font-size:11px;color:var(--muted);margin-right:12px;white-space:nowrap}
+  .tgroup{display:flex;flex-direction:column;gap:4px;flex:none}
+  .tcard{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 7px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);min-width:112px;max-width:210px}
+  .tcard .tx{min-width:0} .tcard .tn{font-size:12px;font-weight:600;white-space:nowrap}
+  .tcard .ts{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+  .tcard.queued .av{filter:grayscale(1);opacity:.55}
+  .tcard.running{border-color:var(--ac)} .tcard.running .av{animation:avpulse 1.3s ease-in-out infinite}
+  .tcard.skipped{opacity:.45} .tcard.skipped .tn{text-decoration:line-through}
+  .tcard.failed{border-color:var(--err)}
+  .tlink{flex:none;width:20px;height:1px;background:var(--border);position:relative}
+  .tlink.cp{width:30px} .tlink.cp::after{content:"";position:absolute;left:50%;top:50%;width:9px;height:9px;margin:-5px 0 0 -5px;border-radius:2px;background:var(--accent)}
+  /* mission cards in the thread: one collapsible card per dispatch */
+  .mcard{border:1px solid var(--border);border-left:3px solid var(--ac,var(--border));border-radius:8px;background:var(--panel)}
+  .mcard .mh{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;cursor:pointer}
+  .mcard .mt{flex:1;min-width:0}
+  .mcard .mn{font-weight:600;font-size:13px} .mcard .mn small{font-weight:400;color:var(--muted);margin-left:6px}
+  .mcard .mtask{font-size:12px;color:var(--muted);line-height:1.45;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mcard.open .mtask{-webkit-line-clamp:unset}
+  .mcard .mstat{font-size:11px;color:var(--muted);white-space:nowrap;padding-top:2px}
+  .mcard .mb{display:none;padding:0 11px 10px;flex-direction:column;gap:8px}
+  .mcard.open .mb{display:flex}
+  .mcard .mb .bubble{background:var(--panel2);border:0;padding:9px 11px;font-size:13px}
+  .mcard .debrief{font-size:13px;line-height:1.55;padding:9px 11px;border-radius:8px;background:var(--panel2);border-left:2px solid var(--ac)}
+  .mcard .debrief .dl{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+  .mcard.skipped{opacity:.6;border-left-style:dashed} .mcard.skipped .mh{cursor:default}
+  .mcard.running .mh .av{animation:avpulse 1.3s ease-in-out infinite}
+  .vline{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center}
+  /* pause bar: a checkpoint, or a step that failed */
+  .cpbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--chip-bd);background:var(--chip-bg);border-radius:8px;font-size:13px}
+  .cpbar.err{border-color:var(--err);background:transparent}
+  .cpbar .cpt{flex:1 1 220px} .cpbar input{flex:2 1 220px}
+  .cpbar button.go{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+  .cpbar.spent{opacity:.6}
+  /* findings: who found it + Parity's bulb */
+  .fprov{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px}
+  .fprov .grow{flex:1}
+  .bulb{width:18px;height:18px;flex:none;background:center/contain no-repeat url(crew/parity-dark.png);opacity:.4;border-radius:50%;outline:1px dashed var(--muted);outline-offset:1px}
+  .bulb.confirmed,.bulb.downgraded{background-image:url(crew/parity.png);opacity:1;outline:0}
+  .bulb.rejected{opacity:1;outline:0}
+  .finding.rejected{opacity:.55} .finding.rejected .ft{text-decoration:line-through}
+  .fverdict{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.45}
+  .ffilter{display:flex;gap:6px;align-items:center;padding:8px 10px 0;flex-wrap:wrap}
+  .ffilter[hidden]{display:none}
+  .ffilter button{display:flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;font-size:11.5px;border-radius:999px}
+  .ffilter button.all{padding:3px 10px}
+  /* mission editor */
+  .modal.wide{width:1020px}
+  .ed-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .ed-row label{font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:4px;flex:1 1 180px}
+  .ed-row input[type=text],.ed-row input[type=number],.ed-row select,.ed-row textarea{width:100%}
+  .ed-row textarea,.insp textarea{min-height:58px;font-size:13px;border-radius:8px;padding:8px 10px}
+  .ed-hint{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0 0 8px}
+  .etrack{display:flex;align-items:center;gap:0;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);overflow-x:auto;min-height:74px}
+  .ecard{position:relative;display:flex;align-items:center;gap:8px;padding:7px 24px 7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);cursor:grab;flex:none;user-select:none}
+  .ecard.lock{cursor:default;padding-right:10px;opacity:.85}
+  .ecard.sel{border-color:var(--ac);box-shadow:0 0 0 1px var(--ac)}
+  .ecard.over{border-color:var(--accent)}
+  .ecard .en{font-size:12.5px;font-weight:600;white-space:nowrap} .ecard .es{font-size:10.5px;color:var(--muted);white-space:nowrap;max-width:104px;overflow:hidden;text-overflow:ellipsis}
+  .ecard .ex{position:absolute;top:2px;right:3px;border:0;background:transparent;padding:1px 4px;font-size:13px;color:var(--muted);line-height:1}
+  .ecard .ex:hover{color:var(--err)}
+  .ecard.par{margin-top:0}
+  .egap{flex:none;display:flex;align-items:center}
+  .egap i{display:block;width:10px;height:1px;background:var(--border)}
+  .egap button{padding:1px 5px;font-size:10px;border-radius:5px;color:var(--muted);line-height:1.5}
+  .egap button.on{background:var(--chip-bg);color:var(--chip-ink);border-color:var(--chip-bd)}
+  .egap button{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;opacity:.55}
+  .egap button.on,.egap button:hover{opacity:1}
+  .pz{display:inline-block;width:7px;height:9px;border-left:2px solid currentColor;border-right:2px solid currentColor;vertical-align:-1px}
+  .eend{flex:none;align-self:stretch;min-width:26px;border:1px dashed transparent;border-radius:8px}
+  .eend.over{border-color:var(--accent)}
+  .eauto{font-size:12px;color:var(--muted);padding:0 14px;white-space:nowrap}
+  .tray{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+  .tray .tchip{display:flex;align-items:center;gap:7px;padding:4px 10px 4px 5px;border:1px solid var(--border);border-radius:999px;background:var(--panel2);font-size:12px;cursor:grab}
+  .tray .tchip:hover{border-color:var(--accent)} .tray .tchip.off{opacity:.45}
+  .insp{border:1px solid var(--border);border-radius:10px;padding:12px;margin:0 0 12px;background:var(--panel2)}
+  .insp h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .insp h4 small{font-weight:400;color:var(--muted)}
+  .insp .chips{margin-top:4px} .insp .chip{font-size:11.5px;padding:3px 9px;border-radius:999px}
+  .ck,.ed-row label.ck{display:flex;flex-direction:row;flex:0 0 auto;align-items:center;gap:7px;font-size:12.5px;color:var(--fg);cursor:pointer}
+  .ck input{accent-color:var(--accent);margin:0}
+  .ed-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px;margin-top:4px} /* taste-skill-ignore: app-screen section separator */
+  .ed-foot .ef{flex:1 1 300px;font-size:11.5px;line-height:1.5;color:var(--muted)}
+  .ed-foot .ef .w{color:var(--warn)} .ed-foot .ef .e{color:var(--err)}
+  .ed-foot button.go{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+  .xnote{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)} /* taste-skill-ignore: app-screen list separator */
+  .xnote:last-child{border-bottom:0}
+  .xnote .xl{flex:1;font-size:13px;line-height:1.5} .xnote .xm{font-size:11px;color:var(--muted)}
+  .xnote textarea{width:100%;min-height:52px;font-size:13px}
+  .xnote button{font-size:11.5px;padding:3px 9px}
+  .xhead{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
 </style>
 </head>
 <body>
@@ -244,6 +364,7 @@
     <button id="focusBtn" type="button" title="Scope the analysis so BINNY knows where to look">Focus</button>
     <div class="focus-menu" id="focusMenu" hidden></div>
   </div>
+  <button id="missionBtn" type="button" title="The crew and the mission Investigate runs: pick one, or build your own">Mission</button>
   <div class="grow"></div>
   <button id="newChatBtn" type="button" title="Start a new conversation">New</button>
   <div class="focus" id="history">
@@ -285,19 +406,22 @@
   </aside>
 
   <section id="chat">
+    <div class="track" id="track" hidden></div>
     <div class="convo" id="convo">
       <div class="empty" id="empty">
         <img class="hero-mark" src="binny-mark.png" alt="">
         <h1>Point BINNY at the target</h1>
-        <p class="pitch">A local-first reverse-engineering agent for binaries, APKs, and scripts. Pick a model, then drop a file to analyze it here, or open one of your cloud projects. Open a file and ask, or hit Investigate.</p>
-        <p class="pitch amber">Your malware never leaves your machine.</p>
+        <p class="pitch">A local-first reverse-engineering agent for binaries, APKs, and scripts. Pick a model, then drop a file to analyze it here, or open one of your cloud projects. Ask BINNY anything, or hit Investigate to send the crew out.</p>
+        <p class="pitch amber">Your sample never leaves your machine.</p>
+        <div class="lineup" id="lineup"></div>
       </div>
     </div>
     <div class="composer">
       <div class="ctxbar" id="ctxbar" style="display:none"></div>
       <div class="inner">
-        <textarea id="input" placeholder="Ask BINNY about this target…  (Enter to send, Shift+Enter for newline)"></textarea>
-        <button class="send ghost" id="investigate" title="Turn the agent loose on the tree (lists, searches, reads, reports)">Investigate</button>
+        <div class="cmdmenu" id="cmdMenu" hidden></div>
+        <textarea id="input" placeholder="Ask BINNY…   / for commands · @name asks one crew member"></textarea>
+        <button class="send ghost" id="investigate" title="Run the mission: BINNY triages, the crew investigates, BINNY writes the report">Investigate</button>
         <button class="send" id="send">Send</button>
       </div>
     </div>
@@ -322,6 +446,7 @@
 
   <aside class="drawer" id="findingsDrawer">
     <h3>Findings</h3>
+    <div class="ffilter" id="findFilter" hidden></div>
     <div class="findings" id="findings"><div class="status" style="padding:10px">No findings yet. The agent pins them here as it works.</div></div>
     <h3 id="hlHead" style="display:none">Highlights <span id="hlCount" style="font-weight:400;color:var(--muted);font-size:11px"></span></h3>
     <div class="findings" id="highlights" style="display:none"></div>
@@ -354,6 +479,21 @@
       <button id="cloudClose" title="Close">Close</button>
     </div>
     <div class="mbody" id="cloudBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="missionModal">
+  <div class="modal wide">
+    <div class="mhead">
+      <b>Mission</b>
+      <div class="seg" id="missionTabs">
+        <button data-tab="plan" class="on">Plan</button>
+        <button data-tab="exp" id="expTab">Experience</button>
+      </div>
+      <div class="grow"></div>
+      <button id="missionClose" title="Close">Close</button>
+    </div>
+    <div class="mbody" id="missionBody"></div>
   </div>
 </div>
 
@@ -465,6 +605,7 @@ $("#modeSeg").addEventListener("click", e=>{
   state.mode = b.dataset.mode;
   [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x===b));
   renderFocus(); // rebuild the focus dropdown for the mode
+  const cur = state.mission; loadMissions().then(()=>{ if(cur) state.mission = cur; }); // coverage is per mode
 });
 
 /* ---- drawers ---- */
@@ -518,18 +659,18 @@ async function compactChat(){
   if(state.streaming){ setCompactNote("Busy — wait for the current reply."); return; }
   if(state.messages.length < 2){ setCompactNote("Nothing to compact yet."); return; }
   if(!state.model){ setCompactNote("Pick a model first."); return; }
-  state.streaming=true; setCompactNote("Compacting…");
+  setBusy(true); const ctl=abortCtl; setCompactNote("Compacting…");
   const body={ baseURL:state.model.baseURL||"", providerId:state.model.providerId||"", model:state.model.model, maxTokens:1024,
     system:"You are compacting a reverse-engineering conversation to save context. Produce a concise brief preserving: the target, confirmed findings (severity/CWE/file:line), decisions, open questions, key file/function/string references, and any artifacts created. Plain prose, no preamble.",
     messages:state.messages };
   let sum="";
   try{
-    await streamSSE("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}, ev=>{
+    await streamSSE("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:ctl.signal}, ev=>{
       if(ev.type==="chunk") sum+=ev.text;
       else if(ev.type==="usage"){ state.tok.sess+=(ev.input||0)+(ev.output||0); updateMeter(); }
     });
-  }catch(e){ setCompactNote("Compact failed: "+e); state.streaming=false; return; }
-  state.streaming=false;
+  }catch(e){ setCompactNote(ctl.signal.aborted ? "Compact stopped — nothing was changed." : "Compact failed: "+e); setBusy(false); return; }
+  setBusy(false);
   sum=sum.trim();
   if(!sum){ setCompactNote("Compact produced nothing — try again."); return; }
   const before=state.messages.length;
@@ -1101,28 +1242,69 @@ async function decompile(file){
 /* ---- findings ---- */
 let findCount = 0;
 const SEV_RANK = {critical:0,high:1,medium:2,low:3,info:4};
-function addFinding(f){
-  if(findCount===0) $("#findings").innerHTML = "";
-  findCount++; $("#findCount").textContent = "("+findCount+")";
-  state.findings.push(f);
+function verdictLabel(f){
+  if(f.verdict==="confirmed") return "confirmed";
+  if(f.verdict==="downgraded") return "downgraded"+(f.was ? " from "+f.was : "");
+  if(f.verdict==="rejected") return "rejected";
+  return "not verified";
+}
+// paintFinding (re)draws one finding card: the claim, where it lives, who
+// found it, and Parity's bulb — outline = pending, lit = confirmed, dark = rejected.
+function paintFinding(el, f){
   const sev = (f.severity||"info").toLowerCase();
-  const el = document.createElement("div"); el.className = "finding s-"+sev;
-  el.dataset.rank = SEV_RANK[sev] ?? 5;
+  el.className = "finding s-"+sev+(f.verdict==="rejected" ? " rejected" : "");
+  el.dataset.rank = (SEV_RANK[sev] ?? 5) + (f.verdict==="rejected" ? 10 : 0);
+  el.dataset.agent = f.agent||"";
   // Where the claim lives: a function (binaries, or the enclosing method on
   // source) and/or file:line. Clicking opens that code.
   const fnName = f.function || (state.bin && f.file ? f.file : "");
   const loc = f.file && f.file!==fnName ? (esc(f.file)+(f.line?":"+f.line:"")) : "";
   el.innerHTML =
     `<div class="ft"><span class="sev sev-${sev}">${esc(sev)}</span> ${esc(f.title||"(untitled)")}</div>`+
-    `<div class="fm">${[f.cwe?esc(f.cwe):"", f.reachability?esc(f.reachability):"", fnName?"ƒ "+esc(fnName):"", loc].filter(Boolean).join(" · ")}</div>`+
-    `<div class="fn">${esc(f.note||"")}</div>`;
+    `<div class="fm">${[f.id?esc(f.id):"", f.cwe?esc(f.cwe):"", f.reachability?esc(f.reachability):"", fnName?"ƒ "+esc(fnName):"", loc].filter(Boolean).join(" · ")}</div>`+
+    `<div class="fn">${esc(f.note||"")}</div>`+
+    (f.verdict && f.reason ? `<div class="fverdict">Parity ${esc(verdictLabel(f))} — ${esc(f.reason)}</div>` : "");
+  if(f.agent){
+    const p = mk("div","fprov"); p.appendChild(avatarEl(f.agent,"sm"));
+    p.appendChild(mk("span",null,"found by "+crewOf(f.agent).name)); p.appendChild(mk("span","grow"));
+    const bulb = mk("span","bulb "+(f.verdict||"pending"));
+    bulb.title = f.verdict ? "Parity: "+verdictLabel(f) : "Not verified yet — Parity hasn't ruled on this";
+    p.appendChild(bulb); el.appendChild(p);
+  }
   const target = findingTarget(f);
   if(target){ el.style.cursor="pointer"; el.title="Open the code this finding is about"; el.onclick=target; }
-  // insert sorted by severity
-  const host = $("#findings"); const kids=[...host.children];
+  el.style.display = (state.findFilter && state.findFilter!==(f.agent||"binny")) ? "none" : "";
+}
+function placeFinding(el){
+  const host = $("#findings"); const kids=[...host.children].filter(k=>k!==el);
   const after = kids.find(k=> (+k.dataset.rank) > (+el.dataset.rank));
   host.insertBefore(el, after||null);
+}
+function addFinding(f){
+  if(findCount===0) $("#findings").innerHTML = "";
+  findCount++; $("#findCount").textContent = "("+findCount+")";
+  state.findings.push(f);
+  const el = document.createElement("div"); el.dataset.idx = state.findings.length-1;
+  paintFinding(el, f); placeFinding(el); // sorted by severity, rejected last
+  renderFindFilter();
   if(!restoring && !$("#findingsDrawer").classList.contains("open")) toggle("#findingsDrawer","#tFindings");
+}
+// setVerdict applies Parity's ruling to a finding already in the drawer.
+function setVerdict(ev){
+  const i = state.findings.findIndex(x=>x.id && x.id===ev.id); if(i<0) return;
+  const f = state.findings[i];
+  f.verdict = ev.verdict; f.reason = ev.reason||"";
+  if(ev.verdict==="downgraded"){ f.was = ev.was || f.was || f.severity; f.severity = ev.severity || f.severity; }
+  const el = $('#findings [data-idx="'+i+'"]'); if(el){ paintFinding(el, f); placeFinding(el); }
+}
+// Filter by crew: one chip per crew member that pinned something.
+function renderFindFilter(){
+  const host = $("#findFilter"), who = [...new Set(state.findings.map(f=>f.agent).filter(Boolean))];
+  host.hidden = who.length===0; host.innerHTML = "";
+  if(!who.length){ state.findFilter = null; return; }
+  const set = id=>{ state.findFilter = id; state.findings.forEach((f,i)=>{ const el = $('#findings [data-idx="'+i+'"]'); if(el) el.style.display = (id && id!==(f.agent||"binny")) ? "none" : ""; }); renderFindFilter(); };
+  const all = mk("button","all"+(state.findFilter?"":" on"),"All"); all.onclick = ()=>set(null); host.appendChild(all);
+  who.forEach(id=>{ const b = mk("button", state.findFilter===id?"on":""); b.appendChild(avatarEl(id,"sm")); b.appendChild(document.createTextNode(crewOf(id).name)); b.onclick = ()=>set(state.findFilter===id ? null : id); host.appendChild(b); });
 }
 
 // findingTarget returns the click action that opens the code a finding (or
@@ -1165,10 +1347,15 @@ function reportHeader(){
   return {isVuln, kind, h};
 }
 function buildReportSections(){
-  const fs = [...state.findings].sort((a,b)=>(SEV_RANK[(a.severity||"info")]??5)-(SEV_RANK[(b.severity||"info")]??5));
-  const {isVuln, h} = reportHeader();
+  // A finding Parity rejected is a negative result: it leaves the findings and
+  // is listed as checked-and-cleared instead.
+  const rejected = state.findings.filter(f=>f.verdict==="rejected");
+  const fs = state.findings.filter(f=>f.verdict!=="rejected").sort((a,b)=>(SEV_RANK[(a.severity||"info")]??5)-(SEV_RANK[(b.severity||"info")]??5));
+  let {isVuln, h} = reportHeader();
+  if(state.verification==="unverified") h += "\nVerification: NONE — these findings have not been independently verified";
+  else if(state.verification==="verified") h += "\nVerification: Parity re-read the evidence ("+fs.filter(f=>f.verdict==="confirmed").length+" confirmed, "+fs.filter(f=>f.verdict==="downgraded").length+" downgraded, "+rejected.length+" rejected)";
   const fid = i => (isVuln?"BINNY-VR-":"BINNY-MA-")+String(i+1).padStart(3,"0");
-  if(!fs.length) return [];
+  if(!fs.length && !rejected.length) return [];
   let sum = h + `\n\n| ID | Severity | CWE | Finding | Location |\n|----|----------|-----|---------|----------|\n`;
   fs.forEach((f,i)=>{
     const loc = f.file ? f.file+(f.line?":"+f.line:"") : "—";
@@ -1180,9 +1367,13 @@ function buildReportSections(){
     if(f.cwe) c += `- CWE: ${f.cwe}\n`;
     if(f.reachability) c += `- Reachability: ${f.reachability}\n`;
     if(f.file) c += `- Location: ${f.file}${f.line?":"+f.line:""}\n`;
+    if(f.agent) c += `- Found by: ${crewOf(f.agent).name}\n`;
+    if(f.verdict) c += `- Verification: ${verdictLabel(f)}${f.reason?" — "+f.reason:""}\n`;
+    else if(state.verification==="verified") c += `- Verification: not reached (unverified)\n`;
     c += `\n${f.note||""}\n`;
     sections.push({id:fid(i), title:`${fid(i)} — ${f.title||"(untitled)"}`, content:c});
   });
+  if(rejected.length) sections.push({id:"checked-cleared", title:"Checked and cleared", content:rejected.map(f=>`- ${f.title||"(untitled)"} — rejected on verification: ${f.reason||"no reason recorded"}`).join("\n")+"\n"});
   return sections;
 }
 function buildReport(){
@@ -1229,6 +1420,8 @@ async function attachSample(src){
 }
 $("#sampleBtn").onclick = ()=>$("#sampleInput").click();
 $("#sampleInput").onchange = e=>{ const f=e.target.files[0]; e.target.value=""; if(f) attachSample(f); };
+// The saved draft says so itself when a mission ran without Parity.
+function draftTitle(){ return "BINNY draft"+(state.verification==="unverified" ? " (unverified)" : "")+" — "+(state.projectName||state.projectId); }
 function setProject(id, name){
   state.projectId = id || null; state.projectName = name || "";
   $("#saveReport").style.display = state.projectId ? "" : "none";
@@ -1243,7 +1436,7 @@ async function saveReport(){
   const btn = $("#saveReport"); btn.disabled = true; btn.textContent = "Saving…";
   try{
     const res = await fetch("/api/report/save",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({title:"BINNY draft — "+(state.projectName||state.projectId), sections})});
+      body:JSON.stringify({title:draftTitle(), sections})});
     const out = await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(out.error || ("save failed ("+res.status+")"));
     addMsg("assistant", `Saved ${out.saved} section${out.saved===1?"":"s"} to the project report (DRAFT — review before publishing).`);
@@ -1323,26 +1516,69 @@ function addMsg(role, text){
   $("#convo").appendChild(m); scroll();
   return m; // caller reaches .bubble / .tools
 }
-function addToolCard(container, name, input){
+// A tool card leads with the avatar of whoever made the call; the ring around
+// it is the call's status (running / ok / failed).
+function addToolCard(container, name, input, agent){
   const card = document.createElement("div"); card.className="tool-card";
   const arg = input ? JSON.stringify(input).slice(0,120) : "";
-  card.innerHTML = `<div class="head"><span class="dot"></span><span class="tname">${esc(name)}</span><span class="targ">${esc(arg)}</span></div><div class="body"></div>`;
+  card.innerHTML = `<div class="head"><span class="tname">${esc(name)}</span><span class="targ">${esc(arg)}</span></div><div class="body"></div>`;
+  card.querySelector(".head").prepend(avatarEl(agent||"binny"));
   card.querySelector(".head").onclick = ()=>card.classList.toggle("open");
   container.appendChild(card);
   scroll(); return card;
 }
 function scroll(){ const c=$("#convo"); c.scrollTop=c.scrollHeight; }
 
-async function send(prefix){
-  if(state.streaming) return;
+/* ---- busy / stop ----
+   A chat turn, a crew question and a mission are each one streaming request;
+   Stop aborts it, which cancels the run on the backend. A stopped chat keeps
+   what was said (say "continue"); a stopped mission pauses and can be resumed. */
+let abortCtl = null;
+function setBusy(on){
+  state.streaming = on; abortCtl = on ? new AbortController() : null;
+  const b = $("#send"); b.textContent = on ? "Stop" : "Send"; b.classList.toggle("stop", on);
+  b.title = on ? "Stop BINNY and the crew (Esc). A mission pauses and can be continued." : "";
+  $("#investigate").disabled = on;
+}
+function stopRun(){ if(!state.streaming || !abortCtl) return false; abortCtl.abort(); return true; }
+const STOPPED = "(stopped by the analyst)";
+// A crew member by @name or id; null when there is no such member.
+function findCrew(name){
+  const q = String(name||"").toLowerCase();
+  const id = state.crewOrder.find(id=>id===q || (crewOf(id).name||"").toLowerCase()===q);
+  return id ? crewOf(id) : null;
+}
+// The "who" line of a message from a crew member: avatar + name.
+function setWho(el, id){
+  const w = el.querySelector(".who"); if(!w) return;
+  w.textContent = ""; w.classList.add("crew"); w.appendChild(avatarEl(id,"sm")); w.appendChild(document.createTextNode(crewOf(id).name));
+}
+
+async function send(override){
   const ta = $("#input");
-  let text = (prefix||"") + ta.value.trim();
-  if(!text.trim()) return;
-  if(text.trim()==="/save"){ ta.value=""; autoSize(); saveReport(); return; }
-  const sm = text.trim().match(/^\/sample(?:\s+([\s\S]+))?$/);
-  if(sm){ ta.value=""; autoSize(); sm[1] ? attachSample(sm[1].trim()) : $("#sampleInput").click(); return; }
+  let text = (override!=null ? override : ta.value).trim();
+  if(!text) return;
+  // "/command" — handled here, never sent to the model. A path-like first word
+  // ("/sdcard/x is…") is ordinary text.
+  if(override==null && /^\/[a-z?]+$/i.test(text.split(/\s/)[0])){
+    ta.value=""; autoSize(); hideMenu();
+    if(!(await runSlash(text))){ ta.value=text; autoSize(); }
+    return;
+  }
+  if(state.streaming) return;
+  // "@trace …" puts the turn to one crew member instead of BINNY — no mission.
+  let agent = null;
+  const mm = text.match(/^@([A-Za-z][\w-]*)(?:[\s,:]+([\s\S]*))?$/);
+  if(mm){
+    const c = findCrew(mm[1]);
+    if(c){
+      const q = (mm[2]||"").trim();
+      if(!q){ addMsg("err","Ask "+c.name+" something: @"+c.id+" <your question>"); return; }
+      if(c.id==="binny") text = q; else agent = c.id;
+    }
+  }
   if(!state.model){ addMsg("err","Pick a model first (top-right). Run Ollama/LM Studio for a local one, or configure an API key."); return; }
-  ta.value=""; autoSize();
+  if(override==null){ ta.value=""; autoSize(); hideMenu(); }
   addMsg("user", text);
   state.messages.push({role:"user", text});
   // Stable id so the server can keep the full transcript (tool turns included)
@@ -1356,13 +1592,16 @@ async function send(prefix){
   $("#empty")?.remove();
   const m = document.createElement("div"); m.className="msg assistant";
   m.innerHTML = '<div class="who">binny</div><div class="flow"></div><div class="work"></div>';
+  if(agent) setWho(m, agent);
   $("#convo").appendChild(m);
   const flow = m.querySelector(".flow"), work = m.querySelector(".work");
   const setWork = label => { work.innerHTML = label ? '<span class="pstatus"></span> '+TYPING : ""; if(label) work.querySelector(".pstatus").textContent = label; scroll(); };
   const textSeg = () => { const d=document.createElement("div"); d.className="bubble"; flow.appendChild(d); return d; };
-  let seg=null, segAcc="", fullAcc="", pendingCard=null;
-  setWork("Thinking…");
-  state.streaming = true; $("#send").disabled = $("#investigate").disabled = true;
+  const note = t => { const n=document.createElement("div"); n.className="work"; n.textContent=t; flow.appendChild(n); return n; };
+  const thinking = agent ? crewOf(agent).name+" is on it…" : "Thinking…";
+  let seg=null, segAcc="", fullAcc="", pendingCard=null, gotAny=false, stopped=false;
+  setWork(thinking);
+  setBusy(true); const ctl = abortCtl;
 
   const body = {
     baseURL: state.model.baseURL || "",
@@ -1373,60 +1612,68 @@ async function send(prefix){
     messages: state.messages,
     // The current draft, so the agent's save_report tool can push it when the
     // analyst asks in chat (only meaningful with a cloud project open).
-    report: state.projectId ? {title:"BINNY draft — "+(state.projectName||state.projectId), sections:buildReportSections()} : null,
+    report: state.projectId ? {title:draftTitle(), sections:buildReportSections()} : null,
     conversationId: curConvo,
     resetContext,
   };
+  if(agent) body.agent = agent;
   try{
-    const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    if(!res.ok || !(res.headers.get("content-type")||"").includes("text/event-stream")){
-      let msg = "Request failed ("+res.status+").";
-      try{ const j=await res.json(); if(j && j.error) msg=j.error; }catch{}
-      setWork(null); const e=textSeg(); e.classList.add("errseg"); e.textContent=msg;
-      state.streaming=false; $("#send").disabled=$("#investigate").disabled=false; return;
-    }
-    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
-    for(;;){
-      const {value,done} = await reader.read(); if(done) break;
-      buf += dec.decode(value,{stream:true});
-      let idx;
-      while((idx = buf.indexOf("\n\n")) >= 0){
-        const line = buf.slice(0,idx).trim(); buf = buf.slice(idx+2);
-        if(!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if(!payload) continue; // keep-alive / empty frame — nothing to parse
-        let ev; try{ ev = JSON.parse(payload); }catch(err){ console.warn("[binny] skipped unparseable SSE event:", payload, err); continue; }
-        if(ev.type==="chunk"){ if(!seg){ seg=textSeg(); segAcc=""; } segAcc+=ev.text; fullAcc+=ev.text; seg.innerHTML=renderMarkdown(segAcc); setWork("Writing…"); }
-        else if(ev.type==="tool_call"){ seg=null; pendingCard=addToolCard(flow, ev.name, ev.input); setWork("Running "+ev.name+"…"); }
-        else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork("Thinking…"); }
-        else if(ev.type==="status"){ setWork(ev.text||"Working…"); if(pendingCard){ pendingCard.querySelector(".body").textContent=ev.text||""; } }
-        else if(ev.type==="finding"){ addFinding(ev); }
-        else if(ev.type==="artifact"){ addArtifact(ev); }
-        else if(ev.type==="highlight"){ addHighlight(ev); }
-        else if(ev.type==="saved"){ const n=document.createElement("div"); n.className="work"; n.textContent="Saved "+ev.saved+" sections to the project report on OpenBIN (DRAFT — review before publishing)."; flow.appendChild(n); const b=$("#saveReport"); b.textContent="Saved"; setTimeout(()=>{ b.textContent="Save to project"; },1500); }
-        else if(ev.type==="usage"){ state.tok.sess += (ev.input||0)+(ev.output||0); if(ev.context) state.tok.ctx = ev.context; updateMeter(); }
-        else if(ev.type==="error"){ seg=null; const e=textSeg(); e.classList.add("errseg"); e.textContent=ev.error; }
-        else if(ev.type==="done"){ if(ev.note){ const n=document.createElement("div"); n.className="work"; n.textContent="Note: "+ev.note; flow.appendChild(n); } }
-      }
-    }
-    setWork(null);
-    if(fullAcc) state.messages.push({role:"assistant", text:fullAcc});
-    else if(!flow.querySelector(".tool-card") && !flow.querySelector(".errseg")){ const e=textSeg(); e.className="status"; e.textContent="BINNY returned an empty response. Try asking again or rephrasing; if the context is large, use Settings → Compact and retry."; }
-  }catch(e){ setWork(null); const er=textSeg(); er.classList.add("errseg"); er.textContent=String(e); }
-  state.streaming=false; $("#send").disabled=$("#investigate").disabled=false;
-  state.ctxReset=false; // server now holds this conversation's transcript; keep resuming it
+    await streamSSE("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:ctl.signal}, ev=>{
+      gotAny = true;
+      if(ev.type==="chunk"){ if(!seg){ seg=textSeg(); segAcc=""; } segAcc+=ev.text; fullAcc+=ev.text; seg.innerHTML=renderMarkdown(segAcc); setWork("Writing…"); }
+      else if(ev.type==="tool_call"){ seg=null; pendingCard=addToolCard(flow, ev.name, ev.input, ev.agent); setWork("Running "+ev.name+"…"); }
+      else if(ev.type==="tool_result"){ if(pendingCard){ pendingCard.classList.add(ev.ok?"ok":"fail"); pendingCard.querySelector(".body").textContent=ev.preview||""; pendingCard=null; } setWork(thinking); }
+      else if(ev.type==="status"){ setWork(ev.text||"Working…"); if(pendingCard){ pendingCard.querySelector(".body").textContent=ev.text||""; } }
+      else if(ev.type==="finding"){ addFinding(ev); }
+      else if(ev.type==="artifact"){ addArtifact(ev); }
+      else if(ev.type==="highlight"){ addHighlight(ev); }
+      else if(ev.type==="saved"){ note("Saved "+ev.saved+" sections to the project report on OpenBIN (DRAFT — review before publishing)."); const b=$("#saveReport"); b.textContent="Saved"; setTimeout(()=>{ b.textContent="Save to project"; },1500); }
+      else if(ev.type==="usage"){ state.tok.sess += (ev.input||0)+(ev.output||0); if(ev.context) state.tok.ctx = ev.context; updateMeter(); }
+      else if(ev.type==="error"){ seg=null; const e=textSeg(); e.classList.add("errseg"); e.textContent=ev.error; }
+      else if(ev.type==="done"){ if(ev.note) note("Note: "+ev.note); }
+    });
+  }catch(e){
+    if(ctl.signal.aborted) stopped = true;
+    else { console.error("[binny] chat:", e); const er=textSeg(); er.classList.add("errseg"); er.textContent=(e && e.message) || String(e); }
+  }
+  setWork(null);
+  if(stopped){
+    if(pendingCard){ pendingCard.classList.add("fail"); pendingCard.querySelector(".body").textContent="stopped"; }
+    note(agent ? "Stopped." : "Stopped. Say “continue” to pick it back up, or ask something else.");
+    // Mirror what the backend kept, so a rebuilt transcript still alternates.
+    state.messages.push({role:"assistant", text: fullAcc ? fullAcc+"\n\n"+STOPPED : STOPPED, agent: agent||undefined});
+  }
+  else if(fullAcc) state.messages.push({role:"assistant", text:fullAcc, agent: agent||undefined});
+  else if(!gotAny){ const last=state.messages[state.messages.length-1]; if(last && last.role==="user" && last.text===text) state.messages.pop(); } // refused before it started: the turn never happened
+  else if(!flow.querySelector(".tool-card") && !flow.querySelector(".errseg")){ const e=textSeg(); e.className="status"; e.textContent=(agent ? crewOf(agent).name : "BINNY")+" returned an empty response. Try asking again or rephrasing; if the context is large, use Settings → Compact and retry."; }
+  setBusy(false);
+  if(gotAny) state.ctxReset=false; // server now holds this conversation's transcript; keep resuming it
   saveConvo(); // persist so the conversation survives a reload
 }
 
-$("#send").onclick = ()=>send();
-$("#investigate").onclick = ()=>send(
-  state.openFile
-    ? "Investigate this file end to end: walk the entry points, trace untrusted input to any dangerous sink, and report what you find with evidence. "
-    : "Investigate this target. Ask me to open the files you need. "
-);
+$("#send").onclick = ()=>{ state.streaming ? stopRun() : send(); };
+// Investigate runs the selected mission (the Default crew unless another was
+// picked): BINNY triages, the crew investigates, BINNY writes the report.
+$("#investigate").onclick = ()=>runMission();
 const inputEl = $("#input");
-inputEl.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); send(); } });
-inputEl.addEventListener("input", autoSize);
+inputEl.addEventListener("keydown", e=>{
+  if(e.isComposing) return;
+  if(menuRows.length){
+    if(e.key==="ArrowDown" || e.key==="ArrowUp"){ e.preventDefault(); menuIdx = (menuIdx+(e.key==="ArrowDown"?1:-1)+menuRows.length)%menuRows.length; renderMenu(); return; }
+    if(e.key==="Tab"){ e.preventDefault(); acceptMenu(false); return; }
+    if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); acceptMenu(true); return; }
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); menuOff = true; hideMenu(); return; }
+  }
+  if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); send(); }
+});
+inputEl.addEventListener("input", ()=>{ menuOff = false; menuIdx = 0; autoSize(); renderMenu(); });
+inputEl.addEventListener("blur", ()=>setTimeout(hideMenu, 150));
+// Esc stops whatever is running — unless a dialog or dropdown is what Esc is for.
+document.addEventListener("keydown", e=>{
+  if(e.key!=="Escape" || !state.streaming || !abortCtl) return;
+  if(document.querySelector(".overlay.open") || document.querySelector(".focus-menu:not([hidden])")) return;
+  e.preventDefault(); stopRun();
+});
 function autoSize(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,180)+"px"; }
 
 /* ---- resizable drawers ---- */
@@ -1455,7 +1702,7 @@ function saveConvo(){
   if(!state.messages.length && !state.findings.length && !state.artifacts.length && !state.highlights.length) return;
   if(!curConvo) curConvo="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   const cs=loadConvos().filter(c=>c.id!==curConvo);
-  cs.unshift({id:curConvo, title:convoTitle(), ts:Date.now(), mode:state.mode, messages:state.messages, findings:state.findings, artifacts:state.artifacts, highlights:state.highlights, tok:state.tok});
+  cs.unshift({id:curConvo, title:convoTitle(), ts:Date.now(), mode:state.mode, messages:state.messages, findings:state.findings, artifacts:state.artifacts, highlights:state.highlights, tok:state.tok, verification:state.verification});
   saveConvos(cs); try{ localStorage.setItem(CUR_KEY,curConvo); }catch{}
 }
 function resetConvoUI(){
@@ -1464,21 +1711,22 @@ function resetConvoUI(){
   $("#artifacts").innerHTML='<div class="status" style="padding:10px">No artifacts yet. Ask BINNY to write a decryptor, a PoC, or a YARA rule.</div>'; artCount=0; $("#artCount").textContent="";
   $("#highlights").innerHTML=""; $("#highlights").style.display="none"; $("#hlHead").style.display="none";
   $("#meter").hidden=true;
+  state.findFilter=null; $("#findFilter").hidden=true; hideTrack(); state.run=null; renderLineup();
 }
 function newChat(){
   saveConvo(); curConvo=null; try{ localStorage.removeItem(CUR_KEY); }catch{}
-  state.messages=[]; state.findings=[]; state.artifacts=[]; state.tok={ctx:0,sess:0}; state.ctxReset=true;
+  state.messages=[]; state.findings=[]; state.artifacts=[]; state.tok={ctx:0,sess:0}; state.ctxReset=true; state.verification=null; state.lessons=[];
   resetConvoUI(); renderHistory();
 }
 function loadConvo(id){
   saveConvo();
   const c=loadConvos().find(x=>x.id===id); if(!c) return;
   curConvo=id; try{ localStorage.setItem(CUR_KEY,id); }catch{}
-  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.highlights=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode; state.ctxReset=true;
+  state.messages=c.messages||[]; state.findings=[]; state.artifacts=[]; state.highlights=[]; state.tok=c.tok||{ctx:0,sess:0}; state.mode=c.mode||state.mode; state.ctxReset=true; state.verification=c.verification||null;
   resetConvoUI();
   [...$("#modeSeg").children].forEach(x=>x.classList.toggle("on", x.dataset.mode===state.mode)); renderFocus();
   restoring=true;
-  state.messages.forEach(m=>{ const el=addMsg(m.role==="user"?"user":"assistant",""); const b=el.querySelector(".bubble"); b.style.display="block"; m.role==="user" ? b.textContent=m.text : b.innerHTML=renderMarkdown(m.text); });
+  state.messages.forEach(m=>{ const el=addMsg(m.role==="user"?"user":"assistant",""); const b=el.querySelector(".bubble"); b.style.display="block"; m.role==="user" ? b.textContent=m.text : b.innerHTML=renderMarkdown(m.text); if(m.role!=="user" && m.agent) setWho(el, m.agent); });
   (c.findings||[]).forEach(addFinding);
   (c.artifacts||[]).forEach(addArtifact);
   (c.highlights||[]).forEach(addHighlight);
@@ -1506,11 +1754,818 @@ document.addEventListener("click", e=>{ if(!$("#history").contains(e.target)) $(
 function restoreLast(){ let cur; try{ cur=localStorage.getItem(CUR_KEY); }catch{} const cs=loadConvos(); const c=cs.find(x=>x.id===cur)||cs[0]; if(c) loadConvo(c.id); }
 window.addEventListener("beforeunload", saveConvo); // don't lose the current chat on close/refresh
 
+/* ================= crew · missions · experience ================= */
+// BINNY is the captain; the crew are specialists with their own tools. A
+// mission is a saved pipeline of crew steps the server drives (mission.go);
+// this is its editor, its live track, and the cards it leaves in the thread.
+state.crew = {binny:{id:"binny", name:"BINNY", title:"Captain — triage, dispatch, report", avatar:"binny-mark.png", accent:"#E8E8E8"}};
+state.crewOrder = ["binny"];
+state.objectives = {MALWARE:[], VULN_RESEARCH:[]};
+state.kind = "";
+state.missions = [];        // what the server lists (starters + saved)
+state.mission = null;       // the mission Investigate runs — an editable copy
+state.selStep = -1;         // card selected in the editor
+state.missionTab = "plan";
+state.missionBudget = 120000;
+state.run = null;           // the mission run on screen
+state.lessons = [];         // method notes the last run proposed (nothing is saved until kept)
+state.verification = null;  // "verified" | "unverified" after a mission; null for plain chat
+state.findFilter = null;    // crew id the Findings drawer is filtered to
+try{ const b = parseInt(localStorage.getItem("binny.missionBudget"),10); if(b>0) state.missionBudget = b; }catch{}
+
+function mk(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+function crewOf(id){ return state.crew[id] || {id, name:id||"?", title:"", avatar:"", accent:"#7f8da3"}; }
+function avatarEl(id, size){
+  const c = crewOf(id||"binny"), el = mk("span","av"+(size?" "+size:"")+(c.id==="binny"?" cap":""));
+  el.style.setProperty("--ac", c.accent); el.title = c.name+(c.title?" — "+c.title:"");
+  if(c.avatar) el.style.backgroundImage = "url("+c.avatar+")"; else el.textContent = (c.name||"?")[0];
+  return el;
+}
+async function loadCrew(){
+  try{
+    const j = await api("/api/crew");
+    (j.crew||[]).forEach(c=>{ state.crew[c.id]=c; });
+    state.crewOrder = (j.crew||[]).map(c=>c.id);
+    state.objectives = j.objectives || state.objectives;
+    state.kind = j.kind || "";
+  }catch{}
+  renderLineup();
+}
+// The empty state introduces the crew, one line each.
+function renderLineup(){
+  const host = $("#lineup"); if(!host) return; host.innerHTML = "";
+  if(state.crewOrder.length < 2) return;
+  state.crewOrder.forEach(id=>{
+    const c = crewOf(id), d = mk("div","lu"); d.appendChild(avatarEl(id,"lg"));
+    const t = mk("div"); t.appendChild(mk("b",null,c.name)); t.appendChild(mk("span","lt",c.title)); d.appendChild(t);
+    host.appendChild(d);
+  });
+}
+
+/* ---- missions: load / select ---- */
+function normMission(m){
+  return {name:m.name, desc:m.desc||"", auto:!!m.auto, allowAdd:!!m.allowAdd, tasking:m.tasking||"", verifyEachStep:!!m.verifyEachStep,
+    starter:!!m.starter, warning:m.warning||"", error:"",
+    steps:(m.steps||[]).map(s=>({role:(s.role||"").toLowerCase(), tasking:s.tasking||"", model:s.model||"", tokenBudget:s.tokenBudget||0, focus:[...(s.focus||[])], checkpoint:!!s.checkpoint, parallel:!!s.parallel}))};
+}
+function missionPayload(m){
+  return {name:m.name, desc:m.desc, auto:m.auto && !m.steps.length, allowAdd:m.allowAdd, tasking:m.tasking, verifyEachStep:m.verifyEachStep,
+    steps:m.steps.map(s=>{ const x={role:s.role}; if(s.tasking.trim()) x.tasking=s.tasking.trim(); if(s.model.trim()) x.model=s.model.trim(); if(s.tokenBudget>0) x.tokenBudget=s.tokenBudget; if(s.focus.length) x.focus=s.focus; if(s.checkpoint) x.checkpoint=true; if(s.parallel) x.parallel=true; return x; })};
+}
+async function loadMissions(select){
+  try{ const j = await api("/api/missions?mode="+encodeURIComponent(state.mode)); state.missions = j.missions||[]; }catch{ state.missions = []; }
+  let want = select;
+  if(!want && !state.mission){ try{ want = localStorage.getItem("binny.mission"); }catch{} want = want || "Default"; }
+  if(want) selectMission(want);
+  updateMissionBtn();
+}
+function selectMission(name){
+  const m = state.missions.find(x=>x.name===name) || state.missions.find(x=>x.name==="Default") || state.missions[0];
+  if(!m) return;
+  state.mission = normMission(m); state.selStep = -1;
+  try{ localStorage.setItem("binny.mission", m.name); }catch{}
+  updateMissionBtn();
+}
+function updateMissionBtn(){
+  const n = state.mission ? state.mission.name : "Default";
+  $("#missionBtn").textContent = "Mission · "+(n.length>20 ? n.slice(0,19)+"…" : n);
+  $("#investigate").title = "Run mission “"+n+"”: BINNY triages, the crew investigates, BINNY writes the report. Anything typed below goes along as intel. Pick or edit the mission with the Mission button.";
+}
+function uniqueName(base){
+  const taken = new Set(state.missions.map(x=>x.name.toLowerCase()));
+  if(!taken.has(base.toLowerCase())) return base;
+  for(let i=2;;i++){ const n = base+" "+i; if(!taken.has(n.toLowerCase())) return n; }
+}
+function stepLabel(s){ return s.role==="binny" ? "BINNY task" : crewOf(s.role).name; }
+
+/* ---- mission editor ---- */
+const ed = {foot:null, nameIn:null, pick:null, timer:null, drag:null};
+$("#missionBtn").onclick = ()=>openMission("plan");
+$("#missionClose").onclick = ()=>$("#missionModal").classList.remove("open");
+$("#missionModal").addEventListener("click", e=>{ if(e.target===$("#missionModal")) $("#missionModal").classList.remove("open"); });
+$("#missionTabs").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return; state.missionTab=b.dataset.tab; renderMissionModal(); });
+async function openMission(tab){
+  state.missionTab = tab||"plan";
+  $("#missionModal").classList.add("open");
+  renderMissionModal();
+  // The target may have changed since the last look (kind decides who can run).
+  await loadCrew();
+  const cur = state.mission;
+  await loadMissions();
+  if(cur) state.mission = cur; else selectMission("Default");
+  renderMissionModal(); if(state.missionTab==="plan") scheduleCheck();
+}
+function renderMissionModal(){
+  [...$("#missionTabs").children].forEach(b=>b.classList.toggle("on", b.dataset.tab===state.missionTab));
+  $("#expTab").textContent = "Experience"+(state.lessons.length ? " · "+state.lessons.length : "");
+  state.missionTab==="exp" ? renderExperience() : renderPlan();
+}
+// edited marks the mission changed: a starter becomes your own copy, and an
+// auto-assembled mission with explicit steps stops being auto.
+function edited(){
+  const m = state.mission;
+  if(m.starter){ m.starter = false; m.name = uniqueName(m.name+" (mine)"); m.desc = ""; }
+  if(m.auto && m.steps.length) m.auto = false;
+  if(m.steps[0]) m.steps[0].parallel = false;
+  if(ed.nameIn){ ed.nameIn.value = m.name; ed.nameIn.disabled = false; }
+  updateMissionBtn(); scheduleCheck();
+}
+function scheduleCheck(){
+  clearTimeout(ed.timer);
+  ed.timer = setTimeout(async ()=>{
+    const m = state.mission; if(!m) return;
+    try{
+      const res = await fetch("/api/missions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"check", mode:state.mode, mission:missionPayload(m)})});
+      const j = await res.json().catch(()=>({}));
+      if(m!==state.mission) return;
+      m.error = res.ok ? "" : (j.error||"This mission can't run yet.");
+      m.warning = res.ok && j.mission ? (j.mission.warning||"") : "";
+    }catch{}
+    paintFoot();
+  }, 220);
+}
+function cloneMission(){
+  const m = state.mission;
+  state.mission = {...m, starter:false, name:uniqueName(m.name+" copy"), steps:m.steps.map(s=>({...s, focus:[...s.focus]}))};
+  updateMissionBtn();
+}
+async function saveMission(){
+  const m = state.mission;
+  try{
+    const res = await fetch("/api/missions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"save", mode:state.mode, mission:missionPayload(m)})});
+    const j = await res.json().catch(()=>({}));
+    if(!res.ok){ m.error = j.error||("Save failed ("+res.status+")."); paintFoot(); return false; }
+    const sel = state.selStep;
+    await loadMissions(m.name); state.selStep = sel;
+    renderPlan(); paintFoot("Saved to ~/.config/binny/missions.");
+    return true;
+  }catch(e){ m.error = String(e); paintFoot(); return false; }
+}
+async function deleteMission(){
+  const m = state.mission;
+  try{ await fetch("/api/missions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete", name:m.name})}); }catch{}
+  state.mission = null; await loadMissions("Default"); renderPlan();
+}
+function spendPreview(m){
+  const b = fmtTok(state.missionBudget);
+  if(m.auto && !m.steps.length) return "Max spend ≈ "+b+" tokens across triage, the crew and the report.";
+  const n = m.steps.length, own = m.steps.reduce((a,s)=>a+(s.tokenBudget||0),0), shared = m.steps.filter(s=>!s.tokenBudget).length;
+  let t = "Max spend ≈ "+b+" tokens: triage, "+n+" step"+(n===1?"":"s");
+  if(shared) t += " (~"+fmtTok(Math.max(15000, Math.floor(state.missionBudget/Math.max(1,n))))+" each)";
+  t += ", report.";
+  if(own) t += " Steps with their own budget add up to "+fmtTok(own)+".";
+  return t+" A step that uses its share wraps up and hands back what it has.";
+}
+function paintFoot(note){
+  const f = ed.foot, m = state.mission; if(!f || !m) return;
+  f.innerHTML = "";
+  const info = mk("div","ef");
+  if(m.error) info.appendChild(mk("div","e",m.error));
+  if(m.warning) info.appendChild(mk("div","w",m.warning));
+  if(!m.auto && !m.steps.some(s=>s.role==="parity")) info.appendChild(mk("div","w","No Parity on this mission — its report will be labelled unverified."));
+  info.appendChild(mk("div",null,spendPreview(m)));
+  if(note) info.appendChild(mk("div",null,note));
+  f.appendChild(info);
+  const save = mk("button",null,"Save"); save.disabled = m.starter || !!m.error; save.title = m.starter ? "Starters are read-only — change something and it becomes your copy" : "Save this mission";
+  save.onclick = saveMission;
+  const run = mk("button","go","Run mission"); run.disabled = !!m.error || state.streaming;
+  run.onclick = ()=>{ $("#missionModal").classList.remove("open"); runMission(); };
+  f.appendChild(save); f.appendChild(run);
+}
+function dropAt(i){
+  const m = state.mission, d = ed.drag; ed.drag = null; if(!d) return;
+  if(d.kind==="role"){ m.steps.splice(i,0,{role:d.id, tasking:"", model:"", tokenBudget:0, focus:[], checkpoint:false, parallel:false}); state.selStep = i; }
+  else { if(d.i===i || d.i+1===i) return; const [s] = m.steps.splice(d.i,1); const at = d.i<i ? i-1 : i; m.steps.splice(at,0,s); state.selStep = at; }
+  edited(); renderPlan();
+}
+function lockCard(what){
+  const c = mk("div","ecard lock"); c.style.setProperty("--ac", crewOf("binny").accent); c.title = "BINNY always goes first (triage) and last (report)";
+  c.appendChild(avatarEl("binny")); const t = mk("div"); t.appendChild(mk("div","en","BINNY")); t.appendChild(mk("div","es",what)); c.appendChild(t);
+  return c;
+}
+function buildETrack(m){
+  const t = mk("div","etrack");
+  t.appendChild(lockCard("triage"));
+  if(m.auto && !m.steps.length){ const g = mk("div","egap"); g.appendChild(mk("i")); t.appendChild(g); t.appendChild(mk("span","eauto","crew assembled after triage, then Parity")); }
+  m.steps.forEach((s,i)=>{
+    // the gap before card i carries the checkpoint toggle of the step before it
+    const g = mk("div","egap"); g.appendChild(mk("i"));
+    if(i>0){
+      const prev = m.steps[i-1], b = mk("button", prev.checkpoint?"on":"", s.parallel ? "‖" : "");
+      if(!s.parallel) b.appendChild(mk("span","pz"));
+      if(s.parallel){ b.title = stepLabel(s)+" runs alongside "+stepLabel(prev); b.disabled = true; }
+      else { b.title = (prev.checkpoint?"Checkpoint on":"Add a checkpoint")+": pause after "+stepLabel(prev)+" for you to review and steer"; b.onclick = ()=>{ prev.checkpoint = !prev.checkpoint; edited(); renderPlan(); }; }
+      g.appendChild(b); g.appendChild(mk("i"));
+    }
+    t.appendChild(g);
+    const c = mk("div","ecard"+(i===state.selStep?" sel":"")); c.style.setProperty("--ac", crewOf(s.role).accent); c.draggable = true;
+    c.appendChild(avatarEl(s.role));
+    const tx = mk("div"); tx.appendChild(mk("div","en",stepLabel(s)));
+    tx.appendChild(mk("div","es", s.tasking.trim() ? s.tasking.trim() : (s.focus.length ? "focus: "+s.focus.join(", ") : (s.role==="parity" ? "verifies findings" : "default task"))));
+    c.appendChild(tx);
+    const x = mk("button","ex","×"); x.title = "Remove this step"; x.onclick = e=>{ e.stopPropagation(); m.steps.splice(i,1); state.selStep = -1; edited(); renderPlan(); };
+    c.appendChild(x);
+    c.onclick = ()=>{ state.selStep = (state.selStep===i ? -1 : i); renderPlan(); };
+    c.ondragstart = e=>{ ed.drag = {kind:"step", i}; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain","step"); };
+    c.ondragover = e=>{ e.preventDefault(); c.classList.add("over"); };
+    c.ondragleave = ()=>c.classList.remove("over");
+    c.ondrop = e=>{ e.preventDefault(); dropAt(i); };
+    t.appendChild(c);
+  });
+  const end = mk("div","eend"); end.title = "Drop a crew member here to add it at the end";
+  end.ondragover = e=>{ e.preventDefault(); end.classList.add("over"); }; end.ondragleave = ()=>end.classList.remove("over");
+  end.ondrop = e=>{ e.preventDefault(); dropAt(m.steps.length); };
+  t.appendChild(end);
+  const g2 = mk("div","egap"); g2.appendChild(mk("i")); t.appendChild(g2);
+  t.appendChild(lockCard("report"));
+  return t;
+}
+function field(label, input){ const l = mk("label",null,label); l.appendChild(input); return l; }
+function check(label, on, fn, disabled){ const l = mk("label","ck"); const c = mk("input"); c.type="checkbox"; c.checked=on; c.disabled=!!disabled; c.onchange=()=>fn(c.checked); l.appendChild(c); l.appendChild(document.createTextNode(label)); return l; }
+function buildInspector(m, i){
+  const s = m.steps[i], c = crewOf(s.role), box = mk("div","insp");
+  const h = mk("h4"); h.appendChild(avatarEl(s.role)); h.appendChild(document.createTextNode(stepLabel(s))); h.appendChild(mk("small",null,c.title||"")); box.appendChild(h);
+  if(s.role==="parity"){
+    box.appendChild(mk("p","ed-hint","Parity re-reads the evidence behind every finding not yet verified when it runs, in a fresh context, and confirms, downgrades or rejects each. Give it a different model from the finders and it is a real second opinion."));
+  } else {
+    const ta = mk("textarea"); ta.value = s.tasking;
+    ta.placeholder = s.role==="binny" ? "What should BINNY do here? A Captain task card needs tasking." : "Leave empty for the default: "+(c.defaultTask||"the objectives this crew member owns");
+    ta.oninput = ()=>{ s.tasking = ta.value; edited(); };
+    const r = mk("div","ed-row"); r.appendChild(field("Tasking — added to this crew member's rules, never in place of evidence-grounding. Placeholders: {sample} {classification} {findings}", ta)); box.appendChild(r);
+    const objs = state.objectives[state.mode]||[];
+    if(objs.length){
+      box.appendChild(mk("div","ed-hint","Focus — objectives this step works instead of the ones "+stepLabel(s)+" owns by default:"));
+      const chips = mk("div","chips");
+      objs.forEach(o=>{ const id = o.ID||o.id, ch = mk("span","chip"+(s.focus.includes(id)?" on":""), id); ch.title = o.Desc||o.desc||"";
+        ch.onclick = ()=>{ s.focus.includes(id) ? s.focus.splice(s.focus.indexOf(id),1) : s.focus.push(id); edited(); renderPlan(); }; chips.appendChild(ch); });
+      box.appendChild(chips);
+    }
+  }
+  const r2 = mk("div","ed-row"); r2.style.marginTop = "10px";
+  const mi = mk("input"); mi.type="text"; mi.value = s.model; mi.placeholder = "the session's model"; mi.oninput = ()=>{ s.model = mi.value; edited(); };
+  r2.appendChild(field("Model — a model id, or provider/model to use another provider", mi));
+  const bi = mk("input"); bi.type="number"; bi.min="0"; bi.step="1000"; bi.value = s.tokenBudget||""; bi.placeholder = "a share of the mission budget";
+  bi.oninput = ()=>{ s.tokenBudget = Math.max(0, parseInt(bi.value,10)||0); edited(); };
+  r2.appendChild(field("Token budget", bi)); box.appendChild(r2);
+  const r3 = mk("div","ed-row");
+  if(i < m.steps.length-1) r3.appendChild(check("Checkpoint after this step", s.checkpoint, v=>{ s.checkpoint = v; edited(); renderPlan(); }));
+  const prevParity = i>0 && m.steps[i-1].role==="parity";
+  r3.appendChild(check("Run alongside the step before it", s.parallel, v=>{ s.parallel = v; edited(); renderPlan(); }, i===0 || s.role==="parity" || prevParity));
+  box.appendChild(r3);
+  if(c.kinds && c.kinds.length && state.kind && !c.kinds.includes(state.kind)) box.appendChild(mk("p","ed-hint",c.name+" doesn't work "+state.kind+" targets — on the one open now this step is skipped (visibly), it won't fail the run."));
+  return box;
+}
+function renderPlan(){
+  const body = $("#missionBody"); body.innerHTML = "";
+  const m = state.mission; if(!m){ body.appendChild(mk("p","ed-hint","Loading missions…")); return; }
+  const r1 = mk("div","ed-row");
+  const pick = mk("select"); ed.pick = pick;
+  state.missions.forEach(x=>{ const o = mk("option",null,x.name+(x.starter?"  · starter":"")); o.value = x.name; pick.appendChild(o); });
+  if(!state.missions.some(x=>x.name===m.name)){ const o = mk("option",null,m.name+"  · not saved"); o.value = m.name; pick.appendChild(o); }
+  pick.value = m.name; pick.onchange = ()=>{ selectMission(pick.value); renderPlan(); scheduleCheck(); };
+  r1.appendChild(field("Mission", pick));
+  const nameIn = mk("input"); nameIn.type="text"; nameIn.value = m.name; nameIn.disabled = m.starter; ed.nameIn = nameIn;
+  nameIn.onchange = ()=>{ const v = nameIn.value.trim(); if(v){ m.name = v; updateMissionBtn(); scheduleCheck(); renderPlan(); } else nameIn.value = m.name; };
+  r1.appendChild(field("Name", nameIn));
+  const bNew = mk("button",null,"New"); bNew.onclick = ()=>{ state.mission = {name:uniqueName("My mission"), desc:"", steps:[], auto:false, allowAdd:false, tasking:"", verifyEachStep:false, starter:false, warning:"", error:""}; state.selStep = -1; updateMissionBtn(); renderPlan(); scheduleCheck(); };
+  const bClone = mk("button",null,"Clone"); bClone.onclick = ()=>{ cloneMission(); renderPlan(); scheduleCheck(); };
+  const bDel = mk("button",null,"Delete"); bDel.disabled = !state.missions.some(x=>x.name===m.name && !x.starter); bDel.onclick = deleteMission;
+  [bNew,bClone,bDel].forEach(b=>{ b.style.alignSelf = "flex-end"; r1.appendChild(b); });
+  body.appendChild(r1);
+  if(m.starter) body.appendChild(mk("p","ed-hint",(m.desc ? m.desc+" " : "")+"Starters are read-only — change anything and it becomes your own copy."));
+  else if(m.desc) body.appendChild(mk("p","ed-hint",m.desc));
+
+  body.appendChild(buildETrack(m));
+  const tray = mk("div","tray");
+  state.crewOrder.concat(["binny"]).filter((id,i,a)=>a.indexOf(id)===i).forEach(id=>{
+    const c = crewOf(id), off = c.kinds && c.kinds.length && state.kind && !c.kinds.includes(state.kind);
+    const chip = mk("span","tchip"+(off?" off":"")); chip.draggable = true; chip.dataset.role = id; chip.appendChild(avatarEl(id,"sm")); chip.appendChild(document.createTextNode(id==="binny" ? "BINNY task card" : c.name));
+    chip.title = (id==="binny" ? "A free-form task BINNY runs with everything found so far" : c.title)+(off ? " — skipped on a "+state.kind+" target" : "")+". Drag onto the track, or click to add at the end.";
+    chip.ondragstart = e=>{ ed.drag = {kind:"role", id}; e.dataTransfer.effectAllowed = "copy"; e.dataTransfer.setData("text/plain","role"); };
+    chip.onclick = ()=>{ ed.drag = {kind:"role", id}; dropAt(m.steps.length); };
+    tray.appendChild(chip);
+  });
+  body.appendChild(tray);
+  if(state.selStep>=0 && m.steps[state.selStep]) body.appendChild(buildInspector(m, state.selStep));
+  else if(m.steps.length) body.appendChild(mk("p","ed-hint","Click a card for its tasking, model, budget and focus. Drag to reorder. The pause mark between two cards is a checkpoint."));
+
+  const r2 = mk("div","ed-row");
+  const mt = mk("textarea"); mt.value = m.tasking; mt.placeholder = "Direction every crew member sees, e.g. “This came from a phishing kit — stay on the credential theft.”";
+  mt.oninput = ()=>{ m.tasking = mt.value; edited(); };
+  r2.appendChild(field("Mission tasking — seen by the whole crew", mt)); body.appendChild(r2);
+  const r3 = mk("div","ed-row");
+  const seg = mk("div","seg"), preset = !m.steps.length ? "" : (m.steps.every(s=>!s.checkpoint) ? "autonomous" : (m.steps.slice(0,-1).every(s=>s.checkpoint) ? "supervised" : "custom"));
+  [["autonomous","Autonomous","No checkpoints — run straight through"],["supervised","Supervised","A checkpoint after every step"],["custom","Custom","Checkpoints where you placed them"]].forEach(([k,label,tip])=>{
+    const b = mk("button", preset===k?"on":"", label); b.title = tip; b.disabled = !m.steps.length || k==="custom";
+    b.onclick = ()=>{ m.steps.forEach((s,i)=>{ s.checkpoint = k==="supervised" && i<m.steps.length-1; }); edited(); renderPlan(); };
+    seg.appendChild(b);
+  });
+  r3.appendChild(seg);
+  r3.appendChild(check("Captain may add steps", m.allowAdd, v=>{ m.allowAdd = v; edited(); }));
+  r3.appendChild(check("Parity after every step", m.verifyEachStep, v=>{ m.verifyEachStep = v; edited(); }));
+  const bud = mk("input"); bud.type="number"; bud.min="20000"; bud.step="10000"; bud.value = state.missionBudget; bud.style.width = "120px";
+  bud.oninput = ()=>{ const v = parseInt(bud.value,10); if(v>0){ state.missionBudget = v; try{ localStorage.setItem("binny.missionBudget", v); }catch{} paintFoot(); } };
+  const bl = mk("label","ck","Mission budget "); bl.appendChild(bud); bl.appendChild(document.createTextNode(" tokens")); r3.appendChild(bl);
+  body.appendChild(r3);
+  ed.foot = mk("div","ed-foot"); body.appendChild(ed.foot); paintFoot();
+}
+
+/* ---- experience: method notes, opt-in per note ---- */
+async function renderExperience(){
+  const body = $("#missionBody"); body.innerHTML = "";
+  body.appendChild(mk("p","ed-hint","Experience is the crew's memory of METHOD across runs — where to look, how to approach a kind of target — never what a sample turned out to be. Notes reach the matching crew member as hints only, scoped by target kind and mode, and nothing is saved unless you keep it. A confidently wrong lesson is worse than none: prune freely."));
+  const post = async obj=>{ const res = await fetch("/api/experience",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj)}); const j = await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||("failed ("+res.status+")")); return j; };
+  if(state.lessons.length){
+    body.appendChild(mk("div","xhead","Proposed by the last run"));
+    state.lessons.forEach((n,i)=>{
+      const row = mk("div","xnote"); row.appendChild(avatarEl(n.role||"binny"));
+      const l = mk("div","xl"); l.appendChild(mk("div",null,n.lesson)); const meta = mk("div","xm",(n.targetType||"")+(n.fromRun?" · from "+n.fromRun:"")); l.appendChild(meta); row.appendChild(l);
+      const keep = mk("button",null,"Keep"), drop = mk("button",null,"Dismiss");
+      keep.onclick = async ()=>{ try{ await post({action:"keep", note:n}); state.lessons.splice(i,1); renderMissionModal(); }catch(e){ meta.textContent = e.message; meta.style.color = "var(--err)"; } };
+      drop.onclick = ()=>{ state.lessons.splice(i,1); renderMissionModal(); };
+      row.appendChild(keep); row.appendChild(drop); body.appendChild(row);
+    });
+  }
+  body.appendChild(mk("div","xhead","Saved notes"));
+  const list = mk("div"); list.appendChild(mk("p","ed-hint","Loading…")); body.appendChild(list);
+  let notes = [];
+  try{ notes = (await api("/api/experience")).notes||[]; }catch{}
+  if(state.missionTab!=="exp") return;
+  list.innerHTML = "";
+  if(!notes.length){ list.appendChild(mk("p","ed-hint","No notes saved yet. After a mission, the lessons the crew proposes show up here for you to keep or dismiss.")); return; }
+  notes.forEach(n=>{
+    const row = mk("div","xnote"); row.appendChild(avatarEl(n.role||"binny"));
+    const l = mk("div","xl"); const txt = mk("div",null,n.lesson); l.appendChild(txt);
+    const meta = mk("div","xm",(n.targetType||"general")+(n.role?" · for "+crewOf(n.role).name:" · any crew")+(n.fromRun?" · from "+n.fromRun:"")); l.appendChild(meta); row.appendChild(l);
+    const edit = mk("button",null,"Edit"), prune = mk("button",null,"Prune");
+    edit.onclick = ()=>{
+      const ta = mk("textarea"); ta.value = n.lesson; txt.replaceWith(ta); ta.focus(); edit.textContent = "Save";
+      edit.onclick = async ()=>{ try{ await post({action:"update", id:n.id, lesson:ta.value}); renderExperience(); }catch(e){ meta.textContent = e.message; meta.style.color = "var(--err)"; } };
+    };
+    prune.onclick = async ()=>{ try{ await post({action:"delete", id:n.id}); }catch{} renderExperience(); };
+    row.appendChild(edit); row.appendChild(prune); list.appendChild(row);
+  });
+}
+
+/* ---- the run: track + mission cards ---- */
+function trackSet(run, key, st, text){
+  run.status[key] = {st, text: text==null ? (run.status[key]||{}).text : text};
+  const c = document.getElementById("tc-"+key); if(!c) return;
+  c.className = "tcard "+st; const ts = c.querySelector(".ts"); if(ts && text!=null){ ts.textContent = text; ts.title = text; }
+}
+function buildTrack(run){
+  const t = $("#track"); t.hidden = false; t.innerHTML = "";
+  t.appendChild(mk("span","tname",run.name));
+  const card = (key, role, name)=>{
+    const s = run.status[key] || {st:"queued", text:"queued"};
+    const c = mk("div","tcard "+s.st); c.id = "tc-"+key; c.style.setProperty("--ac", crewOf(role).accent);
+    c.appendChild(avatarEl(role)); const x = mk("div","tx"); x.appendChild(mk("div","tn",name)); const ts = mk("div","ts",s.text||""); ts.title = s.text||""; x.appendChild(ts); c.appendChild(x);
+    c.style.cursor = "pointer"; c.onclick = ()=>{ const m = run.cards[key]; if(m){ m.el.classList.add("open"); m.el.scrollIntoView({behavior:"smooth", block:"nearest"}); } };
+    return c;
+  };
+  const link = cp=>mk("div","tlink"+(cp?" cp":""));
+  t.appendChild(card(0,"binny","BINNY")); if(!run.status[0]) trackSet(run,0,"queued","triage");
+  let group = null, prevCp = false;
+  run.steps.forEach(s=>{
+    if(s.parallel && group){ group.appendChild(card(s.step, s.role, s.name)); prevCp = prevCp || s.checkpoint; return; }
+    const l = link(prevCp); if(prevCp) l.title = "Checkpoint"; t.appendChild(l);
+    group = mk("div","tgroup"); group.appendChild(card(s.step, s.role, s.name)); t.appendChild(group); prevCp = s.checkpoint;
+  });
+  t.appendChild(link(false));
+  t.appendChild(card("report","binny","BINNY")); if(!run.status.report) trackSet(run,"report","queued","report");
+}
+function hideTrack(){ const t = $("#track"); if(t){ t.hidden = true; t.innerHTML = ""; } }
+function openCard(run, ev){
+  const key = ev.step, old = run.cards[key]; if(old) old.el.remove(); // a retried step starts its card over
+  const c = crewOf(ev.agent), elc = mk("div","mcard open running"); elc.style.setProperty("--ac", c.accent);
+  const h = mk("div","mh"); h.appendChild(avatarEl(ev.agent));
+  const t = mk("div","mt"); const n = mk("div","mn",ev.name||c.name); if(ev.title||c.title) n.appendChild(mk("small",null,ev.title||c.title)); t.appendChild(n);
+  t.appendChild(mk("div","mtask",ev.tasking||"")); h.appendChild(t);
+  const stat = mk("div","mstat","working…"); h.appendChild(stat);
+  h.onclick = ()=>elc.classList.toggle("open");
+  const b = mk("div","mb"); elc.appendChild(h); elc.appendChild(b);
+  run.flow.appendChild(elc);
+  run.cards[key] = {el:elc, body:b, stat, seg:null, acc:"", pending:null, findings:0, spent:0};
+  scroll();
+}
+function cardStat(card){ const p = []; if(card.findings) p.push(card.findings+" finding"+(card.findings===1?"":"s")); if(card.spent) p.push(fmtTok(card.spent)+" tokens"); return p.join(" · "); }
+function closeCard(run, ev){
+  const card = run.cards[ev.step]; if(!card) return;
+  card.el.classList.remove("running","open");
+  if(ev.findings!=null) card.findings = ev.findings;
+  if(ev.spent) card.spent = ev.spent;
+  const d = mk("div","debrief"); d.appendChild(mk("div","dl","Debrief")); const x = mk("div"); x.innerHTML = renderMarkdown(ev.text||""); d.appendChild(x);
+  // The text the member streamed last IS the debrief — don't show it twice.
+  if(card.seg){ card.seg.remove(); card.seg = null; }
+  card.body.appendChild(d);
+  card.stat.textContent = cardStat(card) || "done";
+}
+function skipCard(run, ev){
+  const c = crewOf(ev.agent), elc = mk("div","mcard skipped"); elc.style.setProperty("--ac", c.accent);
+  const h = mk("div","mh"); h.appendChild(avatarEl(ev.agent)); const t = mk("div","mt"); t.appendChild(mk("div","mn",(ev.name||c.name)+" — skipped")); t.appendChild(mk("div","mtask",ev.reason||"")); h.appendChild(t);
+  elc.appendChild(h); run.flow.appendChild(elc); scroll();
+}
+function pauseBar(run, text, isErr){
+  const bar = mk("div","cpbar"+(isErr?" err":"")); bar.appendChild(mk("span","cpt",text));
+  const steer = mk("input"); steer.placeholder = "Steer the next step (optional)"; if(!isErr) bar.appendChild(steer);
+  const go = mk("button","go",isErr?"Retry":"Continue"), wrap = mk("button",null,"Write the report now");
+  const act = action=>{ if(state.streaming) return; bar.classList.add("spent"); [go,wrap,steer].forEach(x=>x.disabled = true); runMission({runId:run.id, steer:steer.value.trim(), action}); };
+  go.onclick = ()=>act(""); wrap.onclick = ()=>act("report");
+  steer.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); act(""); } };
+  bar.appendChild(go); bar.appendChild(wrap); run.flow.appendChild(bar); scroll();
+}
+// stopCards settles the cards of a run the analyst stopped: whoever was out is
+// marked stopped, and their step goes back to waiting (Continue reruns it).
+function stopCards(run){
+  Object.entries(run.cards).forEach(([key, c])=>{
+    if(!c.el.classList.contains("running")) return;
+    c.el.classList.remove("running"); c.stat.textContent = "stopped";
+    if(c.pending){ c.pending.classList.add("fail"); c.pending.querySelector(".body").textContent = "stopped"; c.pending = null; }
+    trackSet(run, key, "queued", "stopped — reruns on Continue");
+  });
+  if(run.pending){ run.pending.classList.add("fail"); run.pending.querySelector(".body").textContent = "stopped"; run.pending = null; }
+  if((run.status.report||{}).st==="running") trackSet(run, "report", "queued", "report");
+}
+function runNote(run, text){ const n = mk("div","work",text); run.flow.appendChild(n); return n; }
+
+function onMissionEvent(run, ev, setWork){
+  const card = ev.step!=null ? run.cards[ev.step] : null;
+  switch(ev.type){
+    case "mission_start": run.id = ev.runId; run.steps = ev.steps||[]; buildTrack(run); setWork("BINNY is triaging…"); break;
+    case "mission_resume": run.steps = ev.steps||run.steps; buildTrack(run); setWork("Picking the mission back up…"); break;
+    case "mission_plan": run.steps = ev.steps||run.steps; buildTrack(run); runNote(run, "BINNY added "+ev.added+" step"+(ev.added===1?"":"s")+" to the mission."); break;
+    case "step_start": openCard(run, ev); trackSet(run, ev.step, "running", "working…"); setWork((ev.name||"Crew")+" is working…"); break;
+    case "step_skip": skipCard(run, ev); trackSet(run, ev.step, "skipped", "skipped — "+(ev.reason||"")); break;
+    case "step_debrief": {
+      closeCard(run, ev);
+      const c = run.cards[ev.step];
+      trackSet(run, ev.step, "done", ev.agent==="parity" && ev.confirmed!=null ? ev.confirmed+" ✔ · "+ev.downgraded+" ▼ · "+ev.rejected+" ✘" : ((c && cardStat(c)) || "done"));
+      if(ev.lessons) state.lessons.push(...ev.lessons);
+      setWork("…"); break;
+    }
+    case "chunk":
+      if(card){ if(!card.seg){ card.seg = mk("div","bubble"); card.acc = ""; card.body.appendChild(card.seg); } card.acc += ev.text; card.seg.innerHTML = renderMarkdown(card.acc); }
+      else { if(!run.seg){ run.seg = mk("div","bubble"); run.flow.appendChild(run.seg); } run.report += ev.text; run.seg.innerHTML = renderMarkdown(run.report); setWork("BINNY is writing the report…"); }
+      scroll(); break;
+    case "tool_call": {
+      const host = card ? card.body : run.flow;
+      const tc = addToolCard(host, ev.name, ev.input, ev.agent||"binny");
+      if(card){ card.seg = null; card.pending = tc; trackSet(run, ev.step, "running", ev.name); } else run.pending = tc;
+      setWork((ev.agent ? crewOf(ev.agent).name+" · " : "")+"running "+ev.name+"…"); break;
+    }
+    case "tool_result": {
+      const tc = card ? card.pending : run.pending;
+      if(tc){ tc.classList.add(ev.ok?"ok":"fail"); tc.querySelector(".body").textContent = ev.preview||""; }
+      if(card) card.pending = null; else run.pending = null; break;
+    }
+    case "status": { setWork(ev.text||"Working…"); const tc = card ? card.pending : run.pending; if(tc) tc.querySelector(".body").textContent = ev.text||""; break; }
+    case "finding": addFinding(ev); if(card){ card.findings++; card.stat.textContent = cardStat(card); } break;
+    case "artifact": addArtifact(ev); break;
+    case "highlight": addHighlight(ev); break;
+    case "verdict": {
+      setVerdict(ev);
+      const pc = Object.values(run.cards).filter(c=>c.el.classList.contains("running")).pop();
+      if(pc){ const l = mk("div","vline"); const b = mk("span","bulb "+ev.verdict); l.appendChild(b); l.appendChild(document.createTextNode(ev.id+" "+ev.verdict+(ev.verdict==="downgraded"&&ev.was?" (from "+ev.was+" to "+ev.severity+")":"")+" — "+(ev.reason||""))); pc.body.appendChild(l); }
+      break;
+    }
+    case "usage":
+      state.tok.sess += (ev.input||0)+(ev.output||0); if(ev.context) state.tok.ctx = ev.context; updateMeter();
+      if(card){ card.spent += (ev.input||0)+(ev.output||0); card.stat.textContent = cardStat(card) || "working…"; }
+      break;
+    case "error": {
+      const e = mk("div","bubble errseg", ev.error); (card ? card.body : run.flow).appendChild(e);
+      if(card){ card.el.classList.remove("running"); card.el.classList.add("open"); card.stat.textContent = "failed"; trackSet(run, ev.step, "failed", "failed"); }
+      break;
+    }
+    case "checkpoint": pauseBar(run, "Checkpoint — review the cards above. Next out: "+(ev.next||"the next step")+"."); break;
+    case "mission_paused": pauseBar(run, "The mission paused: "+(ev.reason||"a step failed")+". Nothing recorded so far is lost.", true); break;
+    case "report_start": state.verification = ev.verification||null; run.seg = null; run.report = ""; trackSet(run, "report", "running", "writing the report"); setWork("BINNY is writing the report…"); break;
+    case "mission_done": {
+      run.finished = true; state.verification = ev.verification||null;
+      trackSet(run, "report", "done", ev.verification==="verified" ? "report · verified" : "report · UNVERIFIED");
+      if(ev.verification!=="verified") runNote(run, "No verification pass ran on this mission — the report and the findings are UNVERIFIED.");
+      if(ev.lessons && ev.lessons.length){
+        state.lessons = ev.lessons;
+        const n = runNote(run, "The crew proposed "+ev.lessons.length+" method note"+(ev.lessons.length===1?"":"s")+" from this run. Nothing is saved unless you keep it. ");
+        const b = mk("button",null,"Review"); b.style.cssText = "padding:2px 8px;font-size:11px"; b.onclick = ()=>openMission("exp"); n.appendChild(b);
+      }
+      // "Save as mission": keep the run that just happened (crew order + tasking as given).
+      const saved = state.missions.find(x=>x.name===run.name && !x.auto);
+      if(ev.mission && (!saved || (ev.mission.steps||[]).length !== (saved.steps||[]).length)){
+        const n = runNote(run, "Worth repeating? "); const b = mk("button",null,"Save this run as a mission"); b.style.cssText = "padding:2px 8px;font-size:11px";
+        b.onclick = ()=>{ const name = window.prompt("Name this mission", uniqueName(run.name==="Default" ? "My mission" : run.name+" (run)")); if(!name) return;
+          state.mission = normMission(ev.mission); state.mission.name = name; state.mission.auto = false; state.mission.starter = false; state.selStep = -1;
+          saveMission().then(ok=>{ n.textContent = ok ? "Saved as mission “"+name+"”." : "Couldn't save: "+(state.mission.error||""); updateMissionBtn(); }); };
+        n.appendChild(b);
+      }
+      break;
+    }
+  }
+}
+async function runMission(opts){
+  opts = opts||{};
+  if(state.streaming) return;
+  if(!state.model){ addMsg("err","Pick a model first (top-right). Run Ollama/LM Studio for a local one, or configure an API key."); return; }
+  const resume = !!opts.runId;
+  if(!resume){
+    if(!state.mission) await loadMissions();
+    if(!state.mission){ addMsg("err","Couldn't load the missions from the binny backend."); return; }
+    const ta = $("#input"), intel = ta.value.trim(); ta.value = ""; autoSize();
+    const m = state.mission;
+    addMsg("user", "Run mission “"+m.name+"”"+(intel ? "\n"+intel : ""));
+    if(!curConvo) curConvo = "c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    $("#empty")?.remove();
+    const host = mk("div","msg assistant");
+    host.innerHTML = '<div class="who"></div><div class="flow"></div><div class="work"></div>';
+    host.querySelector(".who").textContent = "mission · "+m.name;
+    $("#convo").appendChild(host);
+    state.run = {id:null, name:m.name, intel, flow:host.querySelector(".flow"), work:host.querySelector(".work"), cards:{}, steps:[], status:{}, report:"", seg:null, pending:null, finished:false};
+    state.verification = null; state.lessons = [];
+  }
+  const run = state.run; if(!run) return;
+  const setWork = label=>{ run.work.innerHTML = label ? '<span class="pstatus"></span> '+TYPING : ""; if(label) run.work.querySelector(".pstatus").textContent = label; scroll(); };
+  setWork(resume ? "Picking the mission back up…" : "Starting the mission…");
+  setBusy(true); const ctl = abortCtl;
+  const body = {
+    baseURL: state.model.baseURL||"", providerId: state.model.providerId||"", model: state.model.model, maxTokens: state.maxTokens,
+    system: systemPrompt(), mode: state.mode, intel: run.intel, budget: state.missionBudget, conversationId: curConvo,
+    report: state.projectId ? {title:draftTitle(), sections:buildReportSections()} : null,
+  };
+  if(resume){ body.runId = opts.runId; body.steer = opts.steer||""; body.action = opts.action||""; }
+  else body.mission = missionPayload(state.mission);
+  try{
+    await streamSSE("/api/mission/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:ctl.signal}, ev=>onMissionEvent(run, ev, setWork));
+  }catch(e){
+    if(ctl.signal.aborted){
+      // Stop: the backend keeps the run where it stood, so this is a pause.
+      stopCards(run);
+      if(run.finished){ /* the report was already in */ }
+      else if(run.id) pauseBar(run, "Mission paused. Continue picks it up at the step that was interrupted — everything pinned so far is kept.");
+      else runNote(run, "Stopped before the mission got going.");
+    } else {
+      console.error("[binny] mission:", e);
+      const er = mk("div","bubble errseg", e.message||String(e)); run.flow.appendChild(er);
+      if(run.id && e.transport) pauseBar(run, "The stream dropped, but the mission's state is kept on the backend.", true);
+    }
+  }
+  setWork(null);
+  setBusy(false);
+  if(run.finished && !run.logged){
+    run.logged = true;
+    state.messages.push({role:"user", text:"[Mission “"+run.name+"” run]"+(run.intel ? "\n"+run.intel : "")});
+    state.messages.push({role:"assistant", text:run.report});
+    state.ctxReset = false; // the server holds the run's record for follow-up questions
+  }
+  saveConvo();
+}
+
+/* ================= slash commands · the / and @ menu ================= */
+// The TUI's commands, in the chat box. Most have a button somewhere too; a
+// command just gets there from the keyboard. `busy` = usable while BINNY or the
+// crew is working.
+const CMDS = [
+  {n:"/help",        d:"list these commands", busy:true},
+  {n:"/stop",        d:"stop BINNY and the crew — a mission pauses and can be continued", busy:true},
+  {n:"/continue",    d:"resume a paused mission, or tell BINNY to carry on"},
+  {n:"/investigate", a:"[intel]", d:"run the selected mission (same as the Investigate button)"},
+  {n:"/mission",     a:"[name]", d:"run a mission by name — no name opens the mission editor"},
+  {n:"/missions",    d:"list the missions", busy:true},
+  {n:"/crew",        d:"the crew: who they are and what each is doing", busy:true},
+  {n:"/experience",  d:"review the crew's method notes", busy:true},
+  {n:"/findings",    d:"open the Findings panel", busy:true},
+  {n:"/draft",       d:"open the draft report", busy:true},
+  {n:"/save",        d:"push the draft to the project report (DRAFT — review first)", busy:true},
+  {n:"/sample",      a:"[path]", d:"attach the raw sample (a path on this machine, or pick a file)"},
+  {n:"/open",        d:"open a local file to analyze — a binary or an APK"},
+  {n:"/project",     d:"sign in / open one of your cloud projects"},
+  {n:"/mode",        a:"malware|vuln", d:"switch the analysis lens"},
+  {n:"/focus",       a:"[class…|all]", d:"scope the hunt to classes; no argument lists them"},
+  {n:"/model",       a:"[name]", d:"switch model — no argument lists them"},
+  {n:"/models",      d:"list the models you can pick", busy:true},
+  {n:"/key",         d:"set or update API keys"},
+  {n:"/endpoint",    d:"add a model or a custom OpenAI-compatible endpoint"},
+  {n:"/settings",    d:"response limit and context budget", busy:true},
+  {n:"/budget",      a:"[n]", d:"show or set the mission token budget (e.g. /budget 200k)", busy:true},
+  {n:"/status",      d:"model, mode, target and token use", busy:true},
+  {n:"/compact",     d:"summarize the conversation to free up context"},
+  {n:"/new",         d:"start a new conversation"},
+];
+const CMD_ALIAS = {"/?":"/help", "/pause":"/stop", "/decompile":"/open", "/info":"/status", "/report":"/draft", "/clear":"/new"};
+// TUI commands that have no Desktop counterpart: say where that lives instead.
+const TUI_ONLY = {
+  "/start":"Desktop's chat is already direct mode — just type.", "/ask":"Desktop's chat is already direct mode — just type.",
+  "/intel":"Type the intel in the box and press Investigate, or use `/investigate <intel>`.",
+  "/autonomy":"Desktop sets this per mission: checkpoints and “let BINNY add steps” are in the mission editor (`/mission`).",
+  "/skip":"Not in Desktop yet. `/stop` pauses the mission; the pause bar then offers Continue or “Write the report now”.",
+  "/samples":"TUI only for now — in Desktop, ask BINNY to list the project's samples.", "/switch":"TUI only for now — in Desktop, ask BINNY to switch to the sample you want.",
+  "/workspace":"That one is TUI only.", "/refresh":"That one is TUI only.", "/upload":"That one is TUI only.",
+  "/quit":"Close the tab, and stop `binny desktop` in its terminal to shut the backend down.",
+};
+TUI_ONLY["/exit"] = TUI_ONLY["/q"] = TUI_ONLY["/quit"];
+
+// say prints a command's output in the thread. It is not part of the
+// conversation: nothing here is sent to the model or saved.
+function say(cmd, md){
+  const m = addMsg("assistant",""); m.classList.add("note"); m.querySelector(".who").textContent = cmd;
+  const b = m.querySelector(".bubble"); b.style.display = "block"; b.innerHTML = renderMarkdown(md); scroll();
+}
+function parseTok(v){
+  const m = String(v).trim().toLowerCase().match(/^(\d+(?:\.\d+)?)([km]?)$/); if(!m) return 0;
+  return Math.round(parseFloat(m[1]) * (m[2]==="k" ? 1e3 : m[2]==="m" ? 1e6 : 1));
+}
+function modeName(){ return state.mode==="VULN_RESEARCH" ? "vuln research" : "malware"; }
+function focusName(){ return state.focus.size ? [...state.focus].join(", ") : "everything (no focus set)"; }
+function modelLines(){
+  const opts = $("#modelPick")._opts || [];
+  if(!opts.length) return "No models yet — run Ollama or LM Studio for a local one, or add an API key with `/key`.";
+  return opts.map(o=>"- "+(o===state.model ? "**"+o.label+"** (current)" : o.label)).join("\n");
+}
+// setFocus ticks the Focus dropdown's boxes; returns the names it didn't know.
+function setFocus(names){
+  const want = new Set(names.map(x=>x.toLowerCase())), known = new Set(chipClasses());
+  state.focus = new Set([...want].filter(k=>known.has(k)));
+  $("#focusMenu").querySelectorAll("input").forEach(cb=>{ cb.checked = state.focus.has(cb.value); });
+  updateFocusBtn();
+  return [...want].filter(k=>!known.has(k));
+}
+function openDrawer(drawer, btn){ if(!$(drawer).classList.contains("open")) toggle(drawer, btn); }
+
+// runSlash runs one command line. false = it didn't run (BINNY is busy), so
+// the caller puts the text back in the box.
+async function runSlash(line){
+  const sp = line.search(/\s/);
+  let name = (sp<0 ? line : line.slice(0,sp)).toLowerCase();
+  const arg = sp<0 ? "" : line.slice(sp+1).trim(), args = arg ? arg.split(/\s+/) : [];
+  name = CMD_ALIAS[name] || name;
+  const c = CMDS.find(x=>x.n===name);
+  if(!c){ say(name, TUI_ONLY[name] || "No such command. `/help` lists them."); return true; }
+  if(state.streaming && !c.busy){ say(name, "BINNY is busy — `/stop` first, or wait for it to finish."); return false; }
+  switch(name){
+    case "/help":
+      say(name, "**Commands**\n"+CMDS.map(x=>"- `"+x.n+(x.a ? " "+x.a : "")+"` — "+x.d).join("\n")
+        +"\n\n**Crew** — start a message with `@name` to ask one crew member directly, without running a mission: "
+        +state.crewOrder.filter(id=>id!=="binny").map(id=>"`@"+id+"`").join(" ")
+        +"\n\nWhile BINNY or the crew is working, **Stop** (or Esc, or `/stop`) interrupts.");
+      break;
+    case "/stop":
+      if(!state.streaming) say(name, "Nothing is running.");
+      else if(!stopRun()) say(name, "This one can't be stopped from here — a local decompile or analysis runs to completion.");
+      break;
+    case "/continue": {
+      const go = [...document.querySelectorAll(".cpbar:not(.spent) button.go")].pop();
+      if(go) go.click();
+      else if(state.run && state.run.id && !state.run.finished) runMission({runId:state.run.id});
+      else send("continue");
+      break;
+    }
+    case "/investigate": $("#input").value = arg; runMission(); break;
+    case "/mission": {
+      if(!arg){ openMission("plan"); break; }
+      if(!state.missions.length) await loadMissions();
+      const m = state.missions.find(x=>x.name.toLowerCase()===arg.toLowerCase());
+      if(!m){ say(name, "No mission named “"+arg+"”. You have: "+(state.missions.map(x=>"`"+x.name+"`").join(", ") || "none")+"."); break; }
+      selectMission(m.name); runMission();
+      break;
+    }
+    case "/missions": {
+      if(!state.missions.length) await loadMissions();
+      const cur = state.mission ? state.mission.name : "";
+      say(name, state.missions.length ? state.missions.map(m=>{
+        const who = (m.steps||[]).map(st=>crewOf((st.role||"").toLowerCase()).name).join(" → ") || "crew picked for the target";
+        return "- **"+m.name+"**"+(m.name===cur ? " (selected)" : "")+" — "+(m.desc ? m.desc+" · " : "")+who;
+      }).join("\n")+"\n\nRun one with `/mission <name>`; edit or build one with `/mission`." : "Couldn't load the missions from the binny backend.");
+      break;
+    }
+    case "/crew": {
+      const run = state.run;
+      const doing = id=>{
+        if(!run) return "";
+        const st = id==="binny" ? [run.status[0], run.status.report] : (run.steps||[]).filter(x=>x.role===id).map(x=>run.status[x.step]);
+        const t = st.filter(Boolean).map(x=>x.text||x.st).filter(Boolean).join(" · ");
+        return t ? " — *now:* "+t : "";
+      };
+      say(name, state.crewOrder.map(id=>{ const c = crewOf(id); return "- **"+c.name+"**"+(id==="binny" ? "" : " `@"+id+"`")+" — "+c.title+doing(id); }).join("\n")
+        +"\n\nAsk one of them directly with `@name <question>` — no mission needed.");
+      break;
+    }
+    case "/experience": openMission("exp"); break;
+    case "/findings": openDrawer("#findingsDrawer","#tFindings"); break;
+    case "/draft": $("#report").textContent = buildReport(); openDrawer("#reportDrawer","#tReport"); break;
+    case "/save": saveReport(); break;
+    case "/sample": arg ? attachSample(arg) : $("#sampleInput").click(); break;
+    case "/open": $("#apkInput").click(); break;
+    case "/project": $("#cloudBtn").click(); break;
+    case "/mode": {
+      if(!args.length){ say(name, "Mode: **"+modeName()+"** · focus: "+focusName()+".\nSwitch with `/mode malware` or `/mode vuln [class…]`."); break; }
+      const k = args[0].toLowerCase();
+      const want = ["malware","mar","m"].includes(k) ? "MALWARE" : ["vuln","vulnerability","vrr","vr","v"].includes(k) ? "VULN_RESEARCH" : "";
+      if(!want){ say(name, "Unknown mode “"+args[0]+"” — use `malware` or `vuln`."); break; }
+      $('#modeSeg button[data-mode="'+want+'"]').click(); // no-op when already there
+      const bad = args.length>1 ? setFocus(args.slice(1)) : [];
+      say(name, "Mode → **"+modeName()+"** · focus: "+focusName()+"."+(bad.length ? "\nIgnored (unknown class): "+bad.join(", ") : ""));
+      break;
+    }
+    case "/focus": {
+      if(!args.length){ say(name, "Focus: "+focusName()+".\nClasses for "+modeName()+": "+chipClasses().map(x=>"`"+x+"`").join(" ")+"\n`/focus <class…>` scopes the hunt; `/focus all` clears it."); break; }
+      const clear = args.length===1 && ["all","clear","none","survey"].includes(args[0].toLowerCase());
+      const bad = setFocus(clear ? [] : args);
+      say(name, (state.focus.size ? "Focus → "+focusName()+"." : clear ? "Focus cleared — BINNY looks at everything." : "None of those is a class for "+modeName()+" — `/focus` lists them.")
+        +(bad.length && state.focus.size ? "\nIgnored (unknown class): "+bad.join(", ") : ""));
+      break;
+    }
+    case "/models": say(name, modelLines()+"\n\nSwitch with `/model <name>` or the picker, top-right."); break;
+    case "/model": {
+      const pick = $("#modelPick"), opts = pick._opts || [];
+      if(!arg){ say(name, modelLines()+"\n\nSwitch with `/model <name>` — any part of the name will do."); break; }
+      const q = arg.toLowerCase();
+      let hits = opts.filter(o=>o.model.toLowerCase()===q || o.label.toLowerCase()===q);
+      if(!hits.length) hits = opts.filter(o=>o.label.toLowerCase().includes(q));
+      if(!hits.length){ say(name, "No model matches “"+arg+"”.\n"+modelLines()); break; }
+      pick.value = opts.indexOf(hits[0]); state.model = hits[0];
+      say(name, "Now using **"+hits[0].label+"**."+(hits.length>1 ? " ("+hits.length+" matched; took the first — be more specific to pick another.)" : ""));
+      break;
+    }
+    case "/key": openKeys(); break;
+    case "/endpoint": openModels(); break;
+    case "/settings": setTimeout(()=>{ $("#settingsMenu").hidden = false; }, 0); break; // after the click that ran this, which would close it
+    case "/budget": {
+      if(arg){
+        const v = parseTok(arg);
+        if(v < 20000){ say(name, "Give a token count of at least 20k — e.g. `/budget 200k`."); break; }
+        state.missionBudget = v; try{ localStorage.setItem("binny.missionBudget", v); }catch{}
+      }
+      say(name, "Mission budget: **"+fmtTok(state.missionBudget)+"** tokens, shared by the crew"+(arg ? " (set)" : "")+".\nContext budget "+fmtTok(state.budget)+" · max response "+fmtTok(state.maxTokens)+" — both under `/settings`.");
+      break;
+    }
+    case "/status": {
+      let h = {}; try{ h = await api("/api/health"); }catch{}
+      const target = h.projectName ? "project “"+h.projectName+"”" : h.binary ? "a binary (local analysis)" : h.hasDir ? "a decompiled tree (local)" : "nothing open — `/open` or `/project`";
+      const sm = h.sample && h.sample.attached ? h.sample.name : "none attached";
+      const run = state.run;
+      say(name, [
+        "- Model: "+(state.model ? state.model.label : "none picked"),
+        "- Mode: "+modeName()+" · focus: "+focusName(),
+        "- Target: "+target+" · raw sample: "+sm,
+        "- Mission: "+(state.mission ? state.mission.name : "Default")+" · budget "+fmtTok(state.missionBudget),
+        "- Tokens: context "+fmtTok(state.tok.ctx)+" / "+fmtTok(state.budget)+" · "+fmtTok(state.tok.sess)+" used this session",
+        "- Now: "+(state.streaming ? "working — Stop or `/stop` interrupts" : run && run.id && !run.finished ? "mission “"+run.name+"” is paused — `/continue`" : "idle"),
+      ].join("\n"));
+      break;
+    }
+    case "/compact": {
+      await compactChat();
+      const t = $("#compactNote").textContent; if(!/^Compacted/.test(t)) say(name, t);
+      break;
+    }
+    case "/new": newChat(); break;
+  }
+  return true;
+}
+
+/* The menu over the input: "/" lists commands, "@" lists the crew. ↑/↓ move,
+   Tab completes, Enter runs a command (or completes a name), Esc dismisses. */
+const cmdMenu = $("#cmdMenu");
+let menuRows = [], menuIdx = 0, menuOff = false;
+function menuRowsFor(v){
+  if(/^\/[a-z?]*$/i.test(v)){
+    const q = v.toLowerCase();
+    return CMDS.filter(c=>c.n.startsWith(q)).map(c=>({label:c.n, hint:c.a||"", desc:c.d, fill:c.n+(c.a ? " " : ""), run:c.n}));
+  }
+  const m = v.match(/^@([\w-]*)$/);
+  if(m){
+    const q = m[1].toLowerCase();
+    return state.crewOrder.filter(id=>id!=="binny" && (id.startsWith(q) || (crewOf(id).name||"").toLowerCase().startsWith(q)))
+      .map(id=>({label:"@"+id, hint:"", desc:crewOf(id).name+" — "+crewOf(id).title, fill:"@"+id+" ", av:id}));
+  }
+  return [];
+}
+function renderMenu(){
+  menuRows = menuOff ? [] : menuRowsFor(inputEl.value);
+  cmdMenu.hidden = !menuRows.length; cmdMenu.innerHTML = "";
+  if(!menuRows.length) return;
+  menuIdx = Math.max(0, Math.min(menuIdx, menuRows.length-1));
+  menuRows.forEach((r,i)=>{
+    const row = mk("div","cmdrow"+(i===menuIdx ? " sel" : ""));
+    if(r.av) row.appendChild(avatarEl(r.av,"sm"));
+    row.appendChild(mk("b",null,r.label)); if(r.hint) row.appendChild(mk("span","ch",r.hint)); row.appendChild(mk("span","cd",r.desc));
+    row.onmousedown = e=>{ e.preventDefault(); menuIdx = i; acceptMenu(true); }; // mousedown: before the input's blur
+    cmdMenu.appendChild(row);
+  });
+  const sel = cmdMenu.querySelector(".sel"); if(sel) sel.scrollIntoView({block:"nearest"});
+}
+function hideMenu(){ menuRows = []; cmdMenu.hidden = true; }
+function acceptMenu(run){
+  const r = menuRows[menuIdx]; if(!r) return;
+  if(run && r.run){ inputEl.value = r.run; hideMenu(); send(); return; }
+  inputEl.value = r.fill; autoSize(); menuOff = true; hideMenu(); inputEl.focus();
+}
+
 /* ---- boot ---- */
 EMPTY_HTML = $("#convo").innerHTML; // capture before any message replaces it
 setupResizers();
 renderFocus(); loadModels(); loadTree(); loadAuth(); loadBinaryPanel(); loadProject();
-restoreLast(); // pick up the last conversation
+// The crew first, then the saved conversation — its findings name who found them.
+loadCrew().then(()=>{ restoreLast(); loadMissions(); });
 </script>
 </body>
 </html>

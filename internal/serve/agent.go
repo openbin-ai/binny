@@ -619,12 +619,37 @@ func (s *server) toolSearch(pattern, dir string) (string, bool) {
 // It returns the full transcript (text + tool_use + tool_result turns) so the
 // caller can remember it and let the next request resume instead of replaying.
 // On a mid-run error it returns what ran so far, so "continue" keeps that work.
+// A cancelled context (the analyst pressed Stop) ends it the same way, with the
+// partial reply kept — see stopTurn.
 func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req llm.Request, send func(map[string]any)) []llm.Message {
-	for iter := 0; iter < maxAgentIters; iter++ {
+	// A mission step runs this same loop with a tighter leash (loopCfg on the
+	// context): fewer rounds, a token share, and a gate on which tools it may run.
+	cfg := loopCfgFrom(ctx)
+	maxIters := maxAgentIters
+	if cfg.maxIters > 0 {
+		maxIters = cfg.maxIters
+	}
+	stopWhy := "You've reached the investigation step limit."
+	stopNote := "reached the tool-call limit — concluded from findings so far"
+	for iter := 0; iter < maxIters; iter++ {
+		if ctx.Err() != nil {
+			return stopTurn(req.Messages, "", send)
+		}
+		if cfg.stop != nil {
+			if why := cfg.stop(); why != "" {
+				stopWhy, stopNote = why, why
+				break
+			}
+		}
+		var partial strings.Builder
 		resp, err := provider.Stream(ctx, req, func(delta string) {
+			partial.WriteString(delta)
 			send(map[string]any{"type": "chunk", "text": delta})
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return stopTurn(req.Messages, partial.String(), send)
+			}
 			send(map[string]any{"type": "error", "error": err.Error()})
 			return req.Messages
 		}
@@ -657,6 +682,12 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 		req.Messages = append(req.Messages, resp.AsMessage())
 		results := make([]llm.Block, 0, len(calls))
 		for _, c := range calls {
+			// Stopped mid-turn: every tool_use still needs an answer, but nothing
+			// more is run.
+			if ctx.Err() != nil {
+				results = append(results, llm.ToolResult(c.ID, "not run — the analyst stopped the turn", true))
+				continue
+			}
 			send(map[string]any{"type": "tool_call", "name": c.Name, "input": toolCallInput(c.Input)})
 			// A tool call whose arguments didn't finish streaming (invalid JSON,
 			// essentially always the output-token cap) can't be run. Feed the model
@@ -672,15 +703,20 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 			}
 			var out string
 			var isErr bool
-			switch c.Name {
-			case "save_report":
+			handled := false
+			if cfg.tool != nil {
+				out, isErr, handled = cfg.tool(ctx, c.Name, c.Input)
+			}
+			switch {
+			case handled:
+			case c.Name == "save_report":
 				// Pushed from chat: tell the UI so the Report panel reflects it.
 				var n int
 				out, n, isErr = s.toolSaveReport(ctx, c.Input)
 				if !isErr {
 					send(map[string]any{"type": "saved", "saved": n})
 				}
-			case "highlight_function":
+			case c.Name == "highlight_function":
 				var ev map[string]any
 				out, ev, isErr = s.toolHighlight(c.Input)
 				if ev != nil {
@@ -715,19 +751,43 @@ func (s *server) runAgentLoop(ctx context.Context, provider llm.Provider, req ll
 	// Hit the tool-call cap without a final answer. Force a conclusion: one more
 	// call with tools OFF so the model must respond in text instead of looping.
 	req.Tools = nil
-	req.Messages = append(req.Messages, llm.UserText("You've reached the investigation step limit. Stop using tools and give your conclusion now, based on what you've found so far."))
+	req.Messages = append(req.Messages, llm.UserText(stopWhy+" Stop using tools and give your conclusion now, based on what you've found so far."))
+	var partial strings.Builder
 	resp, err := provider.Stream(ctx, req, func(delta string) {
+		partial.WriteString(delta)
 		send(map[string]any{"type": "chunk", "text": delta})
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return stopTurn(req.Messages, partial.String(), send)
+		}
 		send(map[string]any{"type": "error", "error": err.Error()})
 		return req.Messages
 	}
 	req.Messages = append(req.Messages, resp.AsMessage())
 	u := resp.Usage
 	send(map[string]any{"type": "usage", "input": u.InputTokens + u.CacheCreationTokens, "output": u.OutputTokens, "cached": u.CacheReadTokens, "context": u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens})
-	send(map[string]any{"type": "done", "model": resp.Model, "note": "reached the tool-call limit — concluded from findings so far"})
+	send(map[string]any{"type": "done", "model": resp.Model, "note": stopNote})
 	return req.Messages
+}
+
+// stoppedNote marks a turn the analyst cut short (the Stop button aborts the
+// request, which cancels its context).
+const stoppedNote = "(stopped by the analyst)"
+
+// stopTurn closes the transcript of a stopped turn: whatever text had streamed
+// is kept as the assistant's reply, marked as cut short, so the conversation
+// still alternates and "continue" picks up from what was said. The error event
+// is for a mission step, which must not read a stopped step as a finished one.
+func stopTurn(msgs []llm.Message, partial string, send func(map[string]any)) []llm.Message {
+	text := strings.TrimSpace(partial)
+	if text == "" {
+		text = stoppedNote
+	} else {
+		text += "\n\n" + stoppedNote
+	}
+	send(map[string]any{"type": "error", "error": "stopped by the analyst", "stopped": true})
+	return append(msgs, llm.Message{Role: llm.RoleAssistant, Blocks: []llm.Block{llm.TextBlock(text)}})
 }
 
 // toolCallInput returns a value safe to embed in the tool_call SSE event. The
@@ -750,4 +810,25 @@ func preview(s string) string {
 		return s[:toolPreviewSpan] + "…"
 	}
 	return s
+}
+
+// loopCfg tightens runAgentLoop for one mission step. The zero value is the
+// plain chat loop.
+type loopCfg struct {
+	maxIters int           // 0 = maxAgentIters
+	stop     func() string // non-empty = wrap up now, for this reason
+	// tool runs before the normal dispatch: handled=true means it produced the
+	// result (a crew-only tool, or a refusal of one outside the role's set).
+	tool func(ctx context.Context, name string, input json.RawMessage) (out string, isErr, handled bool)
+}
+
+type loopCfgKey struct{}
+
+func withLoopCfg(ctx context.Context, c loopCfg) context.Context {
+	return context.WithValue(ctx, loopCfgKey{}, c)
+}
+
+func loopCfgFrom(ctx context.Context) loopCfg {
+	c, _ := ctx.Value(loopCfgKey{}).(loopCfg)
+	return c
 }

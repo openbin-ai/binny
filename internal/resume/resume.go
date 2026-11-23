@@ -21,8 +21,9 @@ const maxTranscript = 400
 
 // Line is one persisted transcript entry (role is the tui's role enum as int).
 type Line struct {
-	Role int    `json:"role"`
-	Text string `json:"text"`
+	Role  int    `json:"role"`
+	Text  string `json:"text"`
+	Agent string `json:"agent,omitempty"` // crew member the line belongs to
 }
 
 // State is the full resume payload for one project.

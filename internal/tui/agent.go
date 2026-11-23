@@ -47,9 +47,13 @@ func (m *Model) requestStart(note string) {
 	if m.sess.Provider != nil {
 		prov = m.sess.Provider.ID
 	}
+	how := "mission \"" + m.missionChoice().Name + "\" — BINNY triages, the crew investigates, BINNY writes the report"
+	if m.soloRun {
+		how = "solo — BINNY works alone, no crew"
+	}
 	m.append(warnLine(fmt.Sprintf(
-		"⚠ Starting BINNY spends YOUR %s/%s API tokens (budget ~120k tokens, up to 24 rounds; each round resends the conversation, so cost grows). Type y to start, anything else to cancel.",
-		prov, m.sess.Model)))
+		"⚠ Starting BINNY spends YOUR %s/%s API tokens (%s; budget ~%s tokens across the run; each round resends its conversation, so cost grows). Type y to start, anything else to cancel.",
+		prov, m.sess.Model, how, humanTokens(m.sess.TokenBudget()))))
 }
 
 // startAgentNow builds + starts the engine (first run only) and begins stepping.
@@ -61,6 +65,11 @@ func (m *Model) startAgentNow(note string) tea.Cmd {
 			return nil
 		}
 		m.engine, m.inv = eng, inv
+		// /investigate runs a mission: the default crew unless the analyst
+		// picked another with /mission (or /mission solo for BINNY alone).
+		if !m.soloRun {
+			m.engine.SetMission(m.missionChoice())
+		}
 		// Stream text deltas from the loop goroutine into the UI.
 		prog := m.program
 		m.engine.SetStreamSink(func(s string) {
@@ -131,7 +140,7 @@ func (m *Model) handleAgentStep(res agent.StepResult) (tea.Model, tea.Cmd) {
 	// Commit any streamed assistant text as a transcript line (ordered before
 	// this step's tool/phase lines).
 	if m.streaming != "" {
-		m.append(binnyLine(m.streaming))
+		m.append(binnyLine(m.streaming).by(res.Agent))
 		m.streaming = ""
 	}
 	m.append(m.toLines(res.Lines)...)
@@ -237,20 +246,34 @@ func errorHint(err string) string {
 func (m *Model) toLines(els []agent.Line) []line {
 	out := make([]line, 0, len(els))
 	for _, el := range els {
+		var l line
 		switch el.Kind {
 		case "binny":
-			out = append(out, binnyLine(el.Text))
+			l = binnyLine(el.Text)
 		case "tool":
-			out = append(out, toolLine(el.Text))
+			l = toolLine(el.Text)
 		case "ok":
-			out = append(out, okLine(el.Text))
+			l = okLine(el.Text)
 		case "err":
-			out = append(out, errLine(el.Text))
+			l = errLine(el.Text)
 		case "phase":
-			out = append(out, warnLine(el.Text))
+			l = warnLine(el.Text)
+		case "step": // a crew member goes out
+			l = warnLine("▶ " + el.Text)
+			m.liveAgent = el.Agent
+		case "debrief": // …and reports back
+			l = okLine("◀ " + el.Text)
+			if m.liveAgent == el.Agent {
+				m.liveAgent = ""
+			}
+		case "skip":
+			l = sysLine("⏭ " + el.Text)
+		case "verdict":
+			l = sysLine("⚖ " + el.Text)
 		default:
-			out = append(out, sysLine(el.Text))
+			l = sysLine(el.Text)
 		}
+		out = append(out, l.by(el.Agent))
 	}
 	return out
 }
@@ -481,6 +504,10 @@ func (m *Model) cmdSave() {
 		sections = append(sections, api.ReportSection{ID: s.ID, Title: s.Title, Content: s.Content})
 	}
 	title := "BINNY draft — " + m.sess.Project.Name
+	if snap.Verification == agent.VerificationNone {
+		// A mission that ran without Parity: say so on the saved draft itself.
+		title = "BINNY draft (unverified) — " + m.sess.Project.Name
+	}
 
 	// Local project: there's no backend report — save markdown into the local
 	// analysis store next to the analysis blob.

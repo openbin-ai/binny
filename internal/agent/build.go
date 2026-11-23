@@ -5,6 +5,7 @@ import (
 
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/app"
+	"openbin.ai/binny/internal/experience"
 	"openbin.ai/binny/internal/llm"
 	"openbin.ai/binny/internal/tools"
 )
@@ -43,6 +44,8 @@ func Build(sess *app.Session, client *api.Client) (*Engine, *Investigation, erro
 
 	eng = NewEngine(sess, inv, reg, provider)
 	eng.tb = tb
+	// Saved method notes (opt-in, per note) — matched to crew by target type.
+	eng.SetExperience(experience.All())
 
 	// The local Ghidra tool streams its (minutes-long) progress through the
 	// engine's live text sink so the analyst sees what's happening mid-call.

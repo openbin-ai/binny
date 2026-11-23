@@ -69,6 +69,55 @@ func (r *Registry) Has(name string) bool {
 	return ok
 }
 
+// View returns a registry restricted to the named tools that exist here, in
+// this registry's registration order. The tools themselves are shared, so a
+// view is a cheap per-role filter over one underlying toolset: a crew member
+// sees (and can run) only its role's tools.
+func (r *Registry) View(names []string) *Registry {
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[n] = true
+	}
+	v := NewRegistry()
+	for _, name := range r.order {
+		if want[name] {
+			v.Add(r.byName[name])
+		}
+	}
+	return v
+}
+
+// Without returns a registry holding every tool except the named ones.
+func (r *Registry) Without(names ...string) *Registry {
+	drop := make(map[string]bool, len(names))
+	for _, n := range names {
+		drop[n] = true
+	}
+	v := NewRegistry()
+	for _, name := range r.order {
+		if !drop[name] {
+			v.Add(r.byName[name])
+		}
+	}
+	return v
+}
+
+// Merge returns a registry holding the tools of every given registry, in
+// order (a later registry overrides an earlier tool of the same name). Nil
+// registries are skipped.
+func Merge(regs ...*Registry) *Registry {
+	v := NewRegistry()
+	for _, r := range regs {
+		if r == nil {
+			continue
+		}
+		for _, name := range r.order {
+			v.Add(r.byName[name])
+		}
+	}
+	return v
+}
+
 // Run executes a named tool. Returns (result, isError). A missing tool or a
 // handler error is surfaced as an error result string (isError=true) so the
 // loop can hand it to the LLM to recover from, rather than aborting.

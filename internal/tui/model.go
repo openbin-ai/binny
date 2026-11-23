@@ -18,6 +18,7 @@ import (
 	"openbin.ai/binny/internal/agent"
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/app"
+	"openbin.ai/binny/internal/mission"
 	"openbin.ai/binny/internal/resume"
 	"openbin.ai/binny/internal/store"
 )
@@ -110,8 +111,12 @@ type Model struct {
 	checkpoint    bool // Supervised/Collaborative: paused at a phase boundary
 	capPaused     bool // paused on a spend cap — Enter/continue extends, /stop wraps up
 
-	streaming string        // live assistant text being streamed this turn
-	spinner   spinner.Model // "working…" indicator while a step is in flight
+	streaming string // live assistant text being streamed this turn
+	liveAgent string // crew member whose step is running (tags the live stream)
+
+	mission *mission.Mission // mission picked with /mission (nil = the default)
+	soloRun bool             // /mission solo — BINNY alone, no crew
+	spinner spinner.Model    // "working…" indicator while a step is in flight
 
 	runCancel   context.CancelFunc // cancels the in-flight step (Esc interrupt)
 	interrupted bool               // set by Esc so a canceled step reads as a pause
@@ -573,7 +578,7 @@ func (m *Model) submit(val string) (tea.Model, tea.Cmd) {
 	// Commit any assistant text still streaming so the user's line lands AFTER
 	// it (chronological order) rather than before the deferred commit.
 	if m.streaming != "" {
-		m.append(binnyLine(m.streaming))
+		m.append(binnyLine(m.streaming).by(m.liveAgent))
 		m.streaming = ""
 	}
 	m.append(userLine(val))
@@ -660,6 +665,19 @@ func (m *Model) submitSlash(val string) (tea.Model, tea.Cmd) {
 		return m, m.doQA()
 	case "/stop":
 		return m, m.cmdStop()
+	case "/skip":
+		return m, m.cmdSkip()
+	case "/crew":
+		m.append(m.cmdCrew()...)
+		return m, nil
+	case "/missions":
+		m.append(m.cmdMissions()...)
+		return m, nil
+	case "/mission":
+		return m, m.cmdMission(fields[1:])
+	case "/experience", "/exp":
+		m.append(m.cmdExperience(fields[1:], strings.TrimSpace(strings.TrimPrefix(val, fields[0])))...)
+		return m, nil
 	case "/continue", "/c":
 		if m.capPaused {
 			return m, m.resumePastCap("")
@@ -877,7 +895,7 @@ func (m *Model) refreshViewport() {
 		if len(m.transcript) > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(binnyLine(m.streaming).render(m.vp.Width))
+		b.WriteString(binnyLine(m.streaming).by(m.liveAgent).render(m.vp.Width))
 	}
 	m.vp.SetContent(b.String())
 	// Follow the tail unless the analyst has deliberately scrolled up (m.follow).

@@ -125,7 +125,7 @@ func (m *Model) doResume() tea.Cmd {
 	// Restore the visible transcript.
 	m.transcript = m.transcript[:0]
 	for _, l := range st.Transcript {
-		m.transcript = append(m.transcript, line{role: role(l.Role), text: l.Text})
+		m.transcript = append(m.transcript, line{role: role(l.Role), text: l.Text, agent: l.Agent})
 	}
 	// Restore idle/wait flags so input routes correctly.
 	m.awaiting = st.Awaiting
@@ -157,7 +157,7 @@ func (m *Model) persist() {
 	}
 	tr := make([]resume.Line, len(m.transcript))
 	for i, l := range m.transcript {
-		tr[i] = resume.Line{Role: int(l.role), Text: l.text}
+		tr[i] = resume.Line{Role: int(l.role), Text: l.text, Agent: l.agent}
 	}
 	provID := ""
 	if m.sess.Provider != nil {

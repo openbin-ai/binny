@@ -48,7 +48,7 @@ func recordFindingTool(inv *Investigation) *tools.Tool {
 				"cwe":           tools.StrProp("optional CWE id for vuln findings, e.g. CWE-787, CWE-416, CWE-78"),
 				"evidence_refs": tools.ArrProp("function names / strings / addresses (or file:line for APK/script projects) that ground this finding"),
 			}, "category", "note", "evidence_refs")),
-		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var a struct {
 				Category     string   `json:"category"`
 				Severity     string   `json:"severity"`
@@ -62,8 +62,10 @@ func recordFindingTool(inv *Investigation) *tools.Tool {
 			if a.Severity == "" {
 				a.Severity = "info"
 			}
+			who := actorFrom(ctx)
 			if err := inv.AddFinding(Finding{
 				Category: a.Category, Severity: a.Severity, Note: a.Note, CWE: a.CWE, EvidenceRefs: a.EvidenceRefs,
+				FoundBy: who.role, Step: who.step,
 			}); err != nil {
 				return "", err
 			}
@@ -85,7 +87,7 @@ func addIOCTool(inv *Investigation) *tools.Tool {
 				"value":        tools.StrProp("the indicator value"),
 				"evidence_ref": tools.StrProp("the function/string/address where this was found"),
 			}, "type", "value", "evidence_ref")),
-		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var a struct{ Type, Value, EvidenceRef string }
 			if err := json.Unmarshal(input, &struct {
 				Type        *string `json:"type"`
@@ -94,7 +96,8 @@ func addIOCTool(inv *Investigation) *tools.Tool {
 			}{&a.Type, &a.Value, &a.EvidenceRef}); err != nil {
 				return "", err
 			}
-			if err := inv.AddIOC(IOC{Type: a.Type, Value: a.Value, EvidenceRef: a.EvidenceRef}); err != nil {
+			who := actorFrom(ctx)
+			if err := inv.AddIOC(IOC{Type: a.Type, Value: a.Value, EvidenceRef: a.EvidenceRef, FoundBy: who.role, Step: who.step}); err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("recorded IOC %s: %s", a.Type, a.Value), nil

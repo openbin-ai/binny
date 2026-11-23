@@ -20,7 +20,7 @@ func TestCompactElidesOldToolResults(t *testing.T) {
 	}
 	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Blocks: []llm.Block{llm.ToolResult("t2", big, false)}}) // recent big — keep
 
-	e := &Engine{messages: msgs, compactThreshold: 100} // low threshold to force compaction
+	e := &Engine{Runner: &Runner{messages: msgs, compactThreshold: 100}} // low threshold to force compaction
 	notice := e.compact()
 
 	// Old result (index 2) elided.

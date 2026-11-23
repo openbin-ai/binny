@@ -86,6 +86,7 @@ func systemPrompt(mode app.Mode, autonomy app.Autonomy, extraction bool, kind ap
 			"- Scope: you are documenting vulnerabilities for defenders to FIX — describe the flaw, its trigger conditions, its reachability, and the remediation. Do NOT produce a weaponized exploit; a described trigger/precondition is enough.",
 		)
 	}
+	lines = append(lines, "", CaptainCrewBrief())
 	return strings.Join(lines, "\n")
 }
 
@@ -362,7 +363,7 @@ func vulnSynthesizeBrief(pbs []playbook.Playbook, snap InvestigationSnapshot) st
 	b.WriteString("SEVERITY DISCIPLINE: the recorded severities already gate high/critical behind a proven path — keep them. A reachable-but-not-controllable bug is not a critical. Say \"reachability not established\" plainly where that's the truth.\n")
 	b.WriteString("DEPTH BAR: explain the mechanism, not a label. 'strcpy is unsafe' is not a finding — which buffer, from which source, with what size control, via which path. DEFENSIVE report: describe the flaw, its trigger conditions and the fix; do NOT write a weaponized exploit or payload.\n\n")
 
-	scaffold := vulnReportScaffold(snap)
+	scaffold := vulnReportScaffold(snap.forDraft())
 	if scaffold != "" {
 		b.WriteString(scaffold)
 		b.WriteString("\n")

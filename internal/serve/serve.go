@@ -41,6 +41,7 @@ import (
 	"sync"
 	"time"
 
+	"openbin.ai/binny/internal/agent"
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/config"
 	"openbin.ai/binny/internal/llm"
@@ -163,6 +164,10 @@ type server struct {
 	// to after its stream drops — see jobs.go.
 	jobsMu sync.Mutex
 	jobs   map[string]*job
+
+	// missions are crew-mission runs in flight or paused at a checkpoint
+	// (mission.go), keyed by run id and guarded by jobsMu.
+	missions map[string]*missionRun
 
 	// convos is the full per-conversation transcript (text + tool_use +
 	// tool_result turns), keyed by the client's conversationId. The web UI only
@@ -327,6 +332,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("/api/job", s.handleJob)
 	mux.HandleFunc("/api/sample", s.handleSample)
 	mux.HandleFunc("/api/chat", s.handleChat)
+	mux.HandleFunc("/api/crew", s.handleCrew)
+	mux.HandleFunc("/api/missions", s.handleMissions)
+	mux.HandleFunc("/api/mission/run", s.handleMissionRun)
+	mux.HandleFunc("/api/experience", s.handleExperience)
 
 	// Connected mode: log in to the openbin backend and open a cloud project.
 	mux.HandleFunc("/api/auth/status", s.handleAuthStatus)
@@ -662,7 +671,13 @@ type chatRequest struct {
 	Messages   []struct {
 		Role string `json:"role"` // "user" | "assistant"
 		Text string `json:"text"`
+		// Agent is the crew member an assistant turn came from when the analyst
+		// asked one directly (ask.go); "" = BINNY.
+		Agent string `json:"agent"`
 	} `json:"messages"`
+	// Agent sends this turn to one crew member instead of BINNY — the chat's
+	// "@trace …" (ask.go). "" or the captain's id = the normal chat.
+	Agent string `json:"agent"`
 	// Report is the UI's current draft (findings rendered as sections), so the
 	// agent's save_report tool can push it when the analyst asks in chat.
 	Report *api.UpdateReportRequest `json:"report"`
@@ -696,29 +711,17 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build this turn's history. Normally we resume from the remembered
-	// transcript (which carries the tool_use/tool_result turns the client never
-	// sees) plus just the newest user message; on reset, or when we have no
-	// memory for this conversation, we rebuild from the client's text turns.
-	var msgs []llm.Message
-	if prior := s.loadConvo(req.ConversationID); prior != nil && !req.ResetContext {
-		msgs = append(msgs, prior...)
-		if n := len(req.Messages); n > 0 {
-			last := req.Messages[n-1]
-			if !strings.EqualFold(last.Role, "assistant") {
-				msgs = append(msgs, llm.UserText(last.Text))
-			}
-		}
-	} else {
-		msgs = make([]llm.Message, 0, len(req.Messages))
-		for _, m := range req.Messages {
-			if strings.EqualFold(m.Role, "assistant") {
-				msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Blocks: []llm.Block{llm.TextBlock(m.Text)}})
-			} else {
-				msgs = append(msgs, llm.UserText(m.Text))
-			}
+	// "@trace …": the turn goes to one crew member. Refuse before the stream
+	// opens if that member can't work what's open.
+	var ask *askTarget
+	if id := strings.ToLower(strings.TrimSpace(req.Agent)); id != "" && id != agent.CaptainID {
+		if ask, err = s.askTarget(id); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
 		}
 	}
+
+	msgs := s.history(req)
 	model := req.Model
 	if model == "" {
 		model = prov.Models[0]
@@ -758,6 +761,12 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// own (agent.go); without one it's a plain single-turn chat. The findings
 	// accumulator lets save_report pick up findings recorded earlier in this turn.
 	ctx := withFindings(withDraft(r.Context(), req.Report), &findingsAccum{})
+	if ask != nil {
+		s.storeConvo(req.ConversationID, s.askCrew(ctx, provider, ask, llm.Request{
+			System: strings.TrimSpace(req.System + "\n\n" + s.chatContext()), Model: model, MaxTokens: maxTok,
+		}, msgs, send))
+		return
+	}
 	final := s.runAgentLoop(ctx, provider, llm.Request{
 		System:    strings.TrimSpace(req.System + "\n\n" + s.chatContext()),
 		Messages:  msgs,
@@ -766,6 +775,37 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		MaxTokens: maxTok,
 	}, send)
 	s.storeConvo(req.ConversationID, final)
+}
+
+// history builds a turn's messages. Normally it resumes from the remembered
+// transcript (which carries the tool_use/tool_result turns the client never
+// sees) plus just the newest user message; on reset, or with no memory for
+// this conversation, it rebuilds from the client's text turns.
+func (s *server) history(req chatRequest) []llm.Message {
+	var msgs []llm.Message
+	if prior := s.loadConvo(req.ConversationID); prior != nil && !req.ResetContext {
+		msgs = append(msgs, prior...)
+		if n := len(req.Messages); n > 0 {
+			last := req.Messages[n-1]
+			if !strings.EqualFold(last.Role, "assistant") {
+				msgs = append(msgs, llm.UserText(last.Text))
+			}
+		}
+		return msgs
+	}
+	msgs = make([]llm.Message, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		if strings.EqualFold(m.Role, "assistant") {
+			text := m.Text
+			if ro, ok := agent.RoleByID(m.Agent); ok && ro.ID != agent.CaptainID {
+				text = askAnswer(ro, text) // a crew member's direct answer, not BINNY's
+			}
+			msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Blocks: []llm.Block{llm.TextBlock(text)}})
+		} else {
+			msgs = append(msgs, llm.UserText(m.Text))
+		}
+	}
+	return msgs
 }
 
 // resolveProvider turns a chat request into a provider config: a local keyless

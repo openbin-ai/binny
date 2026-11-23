@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"openbin.ai/binny/internal/agent"
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/auth"
 	"openbin.ai/binny/internal/store"
@@ -263,6 +264,8 @@ func pushReport(client *api.Client, pid string, req api.UpdateReportRequest) (*a
 func (s *server) chatContext() string {
 	who := "CONTEXT: You are BINNY, the reverse-engineering assistant of OpenBIN, a defensive security-research platform used by professional malware analysts and reverse engineers. You run on the analyst's machine inside the BINNY desktop app; the analyst can sign in to their OpenBIN account and open their projects here."
 	who += s.sampleContext()
+	who += "\n\n" + agent.CaptainCrewBrief()
+	who += "\n- In this app the analyst can also put a question straight to one crew member by starting a message with @name (e.g. `@trace where does the C2 address come from?`) — no mission needed; suggest it when they want one specialist's take. Those exchanges appear in this conversation as `[The analyst asked Name directly] …` followed by `[Name answered] …`: that is the crew member's own reply, not yours — you may build on it, crediting them.\n\n"
 	pid := s.projectID()
 	if pid == "" {
 		return who + " RIGHT NOW the open target is a local analysis, not a project from their OpenBIN account, so there is no OpenBIN report to push to. If the analyst asks to push, save, upload or sync the report or findings to OpenBIN, their project or their account, tell them to sign in and open the project from the Cloud button (top-right), after which you will be able to push it; meanwhile the Report panel offers Download/Copy."

@@ -48,7 +48,7 @@ func recordVulnFindingTool(inv *Investigation) *tools.Tool {
 				"cvss":            tools.StrProp("optional CVSS vector, e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"),
 				"evidence_refs":   tools.ArrProp("function names / addresses / file:line you observed that ground this"),
 			}, "category", "cwe", "severity", "reachability", "source", "sink", "remediation", "note", "evidence_refs")),
-		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var a struct {
 				Category        string   `json:"category"`
 				CWE             string   `json:"cwe"`
@@ -77,6 +77,8 @@ func recordVulnFindingTool(inv *Investigation) *tools.Tool {
 			if err != nil {
 				return "", err
 			}
+			who := actorFrom(ctx)
+			f.FoundBy, f.Step = who.role, who.step
 			if err := inv.AddFinding(f); err != nil {
 				return "", err
 			}

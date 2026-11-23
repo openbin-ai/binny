@@ -120,6 +120,26 @@ func HistoryPath() (string, error) {
 	return filepath.Join(dir, "binny", "history"), nil
 }
 
+// MissionsDir returns ~/.config/binny/missions — saved crew missions, one JSON
+// file each.
+func MissionsDir() (string, error) {
+	dir, err := xdgConfigHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "binny", "missions"), nil
+}
+
+// ExperienceDir returns ~/.config/binny/experience — the crew's opt-in method
+// notes, one JSON file per target type.
+func ExperienceDir() (string, error) {
+	dir, err := xdgConfigHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "binny", "experience"), nil
+}
+
 func xdgConfigHome() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return xdg, nil
@@ -167,6 +187,24 @@ type Provider struct {
 	// matter (local models). The engine compacts history earlier so the
 	// system prompt and tool list are never pushed out of the window.
 	ContextTokens int `json:"contextTokens,omitempty"`
+	// MaxConcurrency caps how many crew members may call this provider at
+	// once when a mission fans steps out in parallel. 0 = the default for the
+	// provider (see Concurrency).
+	MaxConcurrency int `json:"maxConcurrency,omitempty"`
+}
+
+// Concurrency is how many requests a mission may have in flight against this
+// provider. A local server (Ollama, LM Studio, llama.cpp) serves one request
+// at a time unless told otherwise, so it defaults to 1; hosted APIs default
+// to 3.
+func (p Provider) Concurrency() int {
+	if p.MaxConcurrency > 0 {
+		return p.MaxConcurrency
+	}
+	if p.Local {
+		return 1
+	}
+	return 3
 }
 
 // Key resolves the provider's BYOK key: an explicitly-stored apiKey wins, else

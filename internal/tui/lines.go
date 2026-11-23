@@ -23,15 +23,24 @@ const (
 type line struct {
 	role role
 	text string
+	// agent is the crew member the line belongs to ("" = BINNY / the app). It
+	// renders as a coloured name tag in front of the line.
+	agent string
 }
 
-func sysLine(s string) line   { return line{roleSys, s} }
-func userLine(s string) line  { return line{roleUser, s} }
-func binnyLine(s string) line { return line{roleBinny, s} }
-func toolLine(s string) line  { return line{roleTool, s} }
-func errLine(s string) line   { return line{roleErr, s} }
-func okLine(s string) line    { return line{roleOK, s} }
-func warnLine(s string) line  { return line{roleWarn, s} }
+// by tags a line with the crew member it belongs to.
+func (l line) by(agent string) line {
+	l.agent = agent
+	return l
+}
+
+func sysLine(s string) line   { return line{role: roleSys, text: s} }
+func userLine(s string) line  { return line{role: roleUser, text: s} }
+func binnyLine(s string) line { return line{role: roleBinny, text: s} }
+func toolLine(s string) line  { return line{role: roleTool, text: s} }
+func errLine(s string) line   { return line{role: roleErr, text: s} }
+func okLine(s string) line    { return line{role: roleOK, text: s} }
+func warnLine(s string) line  { return line{role: roleWarn, text: s} }
 
 // render formats a line, wrapping to width. Prefix + color come from the role.
 func (l line) render(width int) string {
@@ -53,6 +62,16 @@ func (l line) render(width int) string {
 	default:
 		prefix, style = "", styleDim
 	}
+	styled := style.Render(prefix)
+	if l.agent != "" {
+		// Crew lines lead with the member's coloured tag: "[hex] ⚙ get_function…".
+		short := strings.TrimLeft(prefix, " ")
+		if l.role == roleBinny {
+			short = "› "
+		}
+		prefix = "[" + l.agent + "] " + short
+		styled = crewTag(l.agent) + " " + style.Render(short)
+	}
 	// Wrap the body to the width LEFT AFTER the prefix/indent, so prefix+body
 	// (and the indented continuation rows) fit inside `width` instead of
 	// overflowing and getting clipped on the right.
@@ -66,7 +85,7 @@ func (l line) render(width int) string {
 	pad := strings.Repeat(" ", pw)
 	for i, r := range rows {
 		if i == 0 {
-			rows[i] = style.Render(prefix) + r
+			rows[i] = styled + r
 		} else {
 			rows[i] = pad + r
 		}

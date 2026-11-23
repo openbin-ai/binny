@@ -17,18 +17,19 @@ import (
 // loop off its own thread and surface progress incrementally, and ask_user
 // suspends cleanly between steps.
 type Engine struct {
+	// The captain's own loop: BINNY's conversation, over the full registry.
+	// Embedded, so the engine's messages ARE the captain's.
+	*Runner
+
 	sess       *app.Session
 	inv        *Investigation
-	reg        *tools.Registry
 	tb         *tools.Toolbox // read toolbox (nil in bare unit-test engines)
 	provider   llm.Provider
 	providerID string // id of the currently-built provider (rebuilt on /model switch)
-	system     string
 
-	messages []llm.Message
-	stage    stage
-	pbs      []playbook.Playbook
-	briefed  map[stage]bool
+	stage   stage
+	pbs     []playbook.Playbook
+	briefed map[stage]bool
 
 	pending *pendingAsk
 
@@ -50,9 +51,8 @@ type Engine struct {
 	synthDeadline int    // round number by which SYNTHESIZE must finish (0 = not set)
 	capReason     string // set when paused on a spend cap ("rounds"|"tokens"|"synth"); cleared on ContinuePastCap
 
-	// context compaction (in-place elision of stale tool results)
-	compactThreshold int  // start compacting once message bytes exceed this
-	compactedOnce    bool // whether the one-time "compaction on" notice has fired
+	// crew dispatch (nil mission = the captain works alone, as before the crew)
+	crewState
 }
 
 const (
@@ -116,8 +116,13 @@ type pendingAsk struct {
 
 // Line is one transcript entry the engine produces.
 type Line struct {
-	Kind string // binny | tool | sys | ok | err | phase
+	// Kind is binny | tool | sys | ok | err | phase, plus the crew kinds:
+	// step (a crew member starts), debrief (it reports back), skip (a step
+	// that couldn't run), verdict (Parity ruled on a finding).
+	Kind string
 	Text string
+	// Agent is the role id of the crew member the line belongs to ("" = BINNY).
+	Agent string
 }
 
 // StepResult is the outcome of one Step.
@@ -130,6 +135,9 @@ type StepResult struct {
 	Refused       bool   // provider declined (safety); paused in place, switch model + retry
 	Done          bool
 	Err           error
+	// Agent is the crew member whose turn this step ran ("" = BINNY) — the
+	// owner of any text streamed live during it.
+	Agent string
 }
 
 // NewEngine builds an engine for a session + investigation + tool registry.
@@ -137,13 +145,16 @@ type StepResult struct {
 // rounds, 4k output/turn. Raise them once you trust a run.
 func NewEngine(sess *app.Session, inv *Investigation, reg *tools.Registry, provider llm.Provider) *Engine {
 	e := &Engine{
-		sess: sess, inv: inv, reg: reg, provider: provider,
-		system:           systemPrompt(sess.Mode, sess.Autonomy, sess.SamplePath != "", sess.Project.Kind),
-		briefed:          map[stage]bool{},
-		maxTokens:        sess.TokenBudget(), // per-project budget (Settings), default 120k
-		perTurnMax:       4096,
-		maxRounds:        24,
-		compactThreshold: defaultCompactThreshold,
+		Runner: &Runner{
+			reg:              reg,
+			system:           systemPrompt(sess.Mode, sess.Autonomy, sess.SamplePath != "", sess.Project.Kind),
+			compactThreshold: defaultCompactThreshold,
+		},
+		sess: sess, inv: inv, provider: provider,
+		briefed:    map[stage]bool{},
+		maxTokens:  sess.TokenBudget(), // per-project budget (Settings), default 120k
+		perTurnMax: 4096,
+		maxRounds:  24,
 	}
 	if sess.Provider != nil {
 		e.providerID = sess.Provider.ID
@@ -329,7 +340,7 @@ func (e *Engine) StartQA(report *api.Report) []Line {
 func (e *Engine) Provide(answer string) {
 	if e.pending == nil {
 		// No question outstanding — treat as a steering message.
-		e.messages = append(e.messages, llm.UserText(answer))
+		e.steerText(answer)
 		return
 	}
 	// Collaborative report interview: store the answer to shape the report; it
@@ -341,7 +352,10 @@ func (e *Engine) Provide(answer string) {
 	}
 	results := append([]llm.Block(nil), e.pending.otherResults...)
 	results = append(results, llm.ToolResult(e.pending.askToolID, answer, false))
-	e.messages = append(e.messages, llm.Message{Role: llm.RoleUser, Blocks: results})
+	// The question came from whoever is working: a crew member mid-step, else
+	// the captain.
+	r := e.asker()
+	r.messages = append(r.messages, llm.Message{Role: llm.RoleUser, Blocks: results})
 	e.pending = nil
 }
 
@@ -357,19 +371,29 @@ func (e *Engine) Ask(text string) {
 	if e.stage == stageDone {
 		e.stage = stageReview
 	}
-	e.appendUser(text)
+	e.steerText(text)
 }
 
-// appendUser adds a user-role text turn, merging into a trailing user message
-// when there already is one (the Messages API rejects two consecutive user
-// turns — this happens when checkpoint steering is followed by a stage brief).
-func (e *Engine) appendUser(text string) {
-	n := len(e.messages)
-	if n > 0 && e.messages[n-1].Role == llm.RoleUser {
-		e.messages[n-1].Blocks = append(e.messages[n-1].Blocks, llm.TextBlock(text))
-		return
+// steerText routes analyst text to whoever should hear it. With no mission
+// running that is the captain. Mid-mission it reaches the crew member at
+// work, or — between steps — is held for the next one; the captain hears it
+// either way, since it writes the report.
+func (e *Engine) steerText(text string) {
+	if e.inMission() {
+		if len(e.active) > 0 {
+			for _, cr := range e.active {
+				if !cr.done {
+					cr.appendUser(text)
+				}
+			}
+		} else {
+			if e.steer != "" {
+				e.steer += "\n"
+			}
+			e.steer += text
+		}
 	}
-	e.messages = append(e.messages, llm.UserText(text))
+	e.appendUser(text)
 }
 
 // Started reports whether Start has seeded the conversation.
@@ -382,6 +406,7 @@ func (e *Engine) Stop() []Line {
 	e.capReason = ""
 	switch e.stage {
 	case stageTriage, stageInvestigate:
+		e.abandonMission()
 		e.stage = stageSynthesize
 		e.synthDeadline = e.rounds + synthesisRounds
 		return []Line{{Kind: "phase", Text: "Stopping investigation — moving to SYNTHESIZE"}}
@@ -396,6 +421,9 @@ func (e *Engine) Stop() []Line {
 // pause so the next Step keeps going. Each call grants one more chunk — the
 // analyst re-authorizes the spend every time, so cost can't run away silently.
 func (e *Engine) ContinuePastCap() []Line {
+	if lines, ok := e.continueCrewCap(); ok {
+		return lines
+	}
 	switch e.capReason {
 	case "rounds":
 		e.maxRounds += capRoundExtension
@@ -456,6 +484,9 @@ func (e *Engine) Step(ctx context.Context) StepResult {
 			return StepResult{CapReached: "synth", Lines: []Line{{Kind: "phase", Text: "Synthesis round budget reached — the draft may be incomplete."}}}
 		}
 	case stageTriage, stageInvestigate:
+		if e.inMission() {
+			break // a mission caps each crew step on its own share (stepMission)
+		}
 		if e.rounds >= e.maxRounds {
 			e.capReason = "rounds"
 			return StepResult{CapReached: "rounds", Lines: []Line{{Kind: "phase", Text: fmt.Sprintf("Round cap reached (%d rounds) — analysis paused, not finished.", e.maxRounds)}}}
@@ -470,55 +501,28 @@ func (e *Engine) Step(ctx context.Context) StepResult {
 		return StepResult{Err: err}
 	}
 
+	// A mission hands the investigation to the crew: the captain's own loop
+	// sits out until synthesis.
+	if e.inMission() {
+		return e.stepMission(ctx)
+	}
+
 	var lines []Line
 	lines = append(lines, e.ensureBrief()...)
-	lines = append(lines, e.compact()...) // trim stale tool output before re-sending
 
 	e.rounds++
-	req := llm.Request{
-		System:    e.system,
-		Messages:  e.messages,
-		Tools:     e.reg.Defs(),
-		Model:     e.sess.Model,
-		MaxTokens: e.perTurnMax,
+	t := e.Runner.turn(ctx, turnOpts{provider: e.provider, model: e.sess.Model, maxTokens: e.perTurnMax, sink: e.streamSink})
+	lines = append(lines, t.lines...)
+	if t.err != nil {
+		return StepResult{Err: t.err, Lines: lines}
 	}
-	streamed := false
-	sink := func(s string) {
-		if e.streamSink != nil {
-			streamed = true
-			e.streamSink(s)
-		}
-	}
-	resp, err := e.provider.Stream(ctx, req, sink)
-	if err != nil {
-		return StepResult{Err: err, Lines: lines}
-	}
-	// Budget on freshly-billed tokens only: uncached input + cache writes +
-	// output. Cache READS (the re-sent conversation prefix) are ~0.1x and are
-	// tracked separately — counting them here would defeat the point of caching
-	// and burn the budget on context the model already paid to store.
-	e.spentTokens += resp.Usage.InputTokens + resp.Usage.CacheCreationTokens + resp.Usage.OutputTokens
-	e.cacheReadTokens += resp.Usage.CacheReadTokens
-
-	if resp.StopReason == llm.StopRefusal {
-		// Don't append the refusal or advance the phase — keep the analyst's
-		// place. The same context re-sent to the same model will refuse again,
-		// so guide them to switch provider (or rephrase) and continue.
-		lines = append(lines, Line{Kind: "err", Text: fmt.Sprintf(
-			"%s declined this (safety classifier — malware RE can trip Claude's cyber safeguards). Your place is kept. Options: /model to a non-Claude provider (e.g. openai, deepseek), then type to continue; or /stop to synthesize with what's gathered so far.",
-			e.sess.Model)})
+	e.account(t.usage)
+	if t.refused {
+		// Phase not advanced — the analyst's place is kept.
 		return StepResult{Lines: lines, Refused: true}
 	}
 
-	// Only add the text as a transcript line when it wasn't streamed live (the
-	// UI already rendered streamed text). Non-streaming providers still surface.
-	if txt := strings.TrimSpace(resp.Text()); txt != "" && !streamed {
-		lines = append(lines, Line{Kind: "binny", Text: txt})
-	}
-	e.messages = append(e.messages, resp.AsMessage())
-
-	calls := resp.ToolCalls()
-	if len(calls) == 0 {
+	if t.ended {
 		// Model ended its turn without tools → phase transition or pause.
 		before := e.stage
 		lines = append(lines, e.advanceStage()...)
@@ -533,39 +537,16 @@ func (e *Engine) Step(ctx context.Context) StepResult {
 		}
 	}
 
-	// Run tool calls, collecting results into one user message. If ask_user is
-	// among them, suspend after running the others.
-	var results []llm.Block
-	var ask *llm.ToolCall
-	for i := range calls {
-		c := calls[i]
-		if c.Name == AskUserToolName {
-			ask = &calls[i]
-			continue
-		}
-		lines = append(lines, Line{Kind: "tool", Text: toolCallLabel(c)})
-		out, isErr := e.reg.Run(ctx, c.Name, c.Input)
-		kind := "tool"
-		if isErr {
-			kind = "err"
-		}
-		lines = append(lines, Line{Kind: kind, Text: toolResultLabel(c.Name, out)})
-		results = append(results, llm.ToolResult(c.ID, out, isErr))
-	}
-
-	if ask != nil {
-		q := QuestionFromAskUser(ask.Input)
-		e.pending = &pendingAsk{kind: askTool, question: q, askToolID: ask.ID, otherResults: results}
+	if t.ask != nil {
+		q := e.suspendOnAsk(t)
 		// Only surface the question as its own line when the assistant didn't
 		// already write it as preamble text (models usually do) — otherwise it
 		// shows twice.
-		if strings.TrimSpace(resp.Text()) == "" {
+		if strings.TrimSpace(t.resp.Text()) == "" {
 			lines = append(lines, Line{Kind: "binny", Text: q})
 		}
 		return StepResult{Lines: lines, AwaitQuestion: q}
 	}
-
-	e.messages = append(e.messages, llm.Message{Role: llm.RoleUser, Blocks: results})
 
 	// If TRIAGE just produced a classification, load the playbook and advance.
 	if e.stage == stageTriage && len(e.inv.MalwareTypes) > 0 {
@@ -576,61 +557,32 @@ func (e *Engine) Step(ctx context.Context) StepResult {
 	return StepResult{Lines: lines}
 }
 
+// account folds one round-trip's usage into the session totals.
+func (e *Engine) account(u llm.Usage) {
+	e.spentTokens += u.InputTokens + u.CacheCreationTokens + u.OutputTokens
+	e.cacheReadTokens += u.CacheReadTokens
+}
+
+// suspendOnAsk parks the loop on an ask_user call and returns the question.
+func (e *Engine) suspendOnAsk(t turnResult) string {
+	q := QuestionFromAskUser(t.ask.Input)
+	e.pending = &pendingAsk{kind: askTool, question: q, askToolID: t.ask.ID, otherResults: t.results}
+	return q
+}
+
 // checkpointing reports whether the mode pauses at phase boundaries.
 func (e *Engine) checkpointing() bool { return e.sess.Autonomy != app.Autonomous }
 
 // crossedBoundary reports whether a real phase transition just happened AND the
 // mode wants to pause on it (Supervised/Collaborative). Transitions into REVIEW
-// or DONE are handled by TurnComplete/Done, not this.
+// or DONE are handled by TurnComplete/Done, not this. A saved mission places
+// its own checkpoints, so the session's autonomy doesn't add any.
 func (e *Engine) crossedBoundary(before stage) bool {
+	if e.mission != nil && !e.mission.Auto {
+		return false
+	}
 	return e.checkpointing() && e.stage != before &&
 		e.stage != stageReview && e.stage != stageDone
-}
-
-// messagesBytes estimates the conversation size (chars ≈ 4× tokens).
-func (e *Engine) messagesBytes() int {
-	n := 0
-	for _, m := range e.messages {
-		for _, b := range m.Blocks {
-			n += len(b.Text) + len(b.Content) + len(b.Input)
-		}
-	}
-	return n
-}
-
-// compact bounds the re-sent context by stubbing the CONTENT of stale, large
-// tool_result blocks (everything except the last compactKeepRecent messages and
-// the opening kickoff). It edits content in place — tool_use/tool_result pairing
-// and user/assistant alternation are untouched — so it's safe for the Messages
-// API. Conclusions live in the Investigation, so the raw output is disposable;
-// the model can re-run a tool if it truly needs the detail again. No-op until the
-// history crosses compactThreshold (short runs stay pristine + cache well).
-func (e *Engine) compact() []Line {
-	if e.messagesBytes() < e.compactThreshold {
-		return nil
-	}
-	cut := len(e.messages) - compactKeepRecent
-	if cut <= 1 { // keep messages[0] (kickoff) + the recent tail
-		return nil
-	}
-	elided, saved := 0, 0
-	for i := 1; i < cut; i++ {
-		for j := range e.messages[i].Blocks {
-			b := &e.messages[i].Blocks[j]
-			if b.Kind == llm.BlockToolResult && len(b.Content) > compactMinElideBytes {
-				saved += len(b.Content)
-				b.Content = fmt.Sprintf("[output elided to save context — %d chars; conclusions are recorded. Re-run the tool if you need the detail again.]", len(b.Content))
-				elided++
-			}
-		}
-	}
-	if elided == 0 || e.compactedOnce {
-		return nil
-	}
-	e.compactedOnce = true
-	return []Line{{Kind: "sys", Text: fmt.Sprintf(
-		"Context compaction: trimmed %d older tool result(s) (~%dk chars) to keep this run affordable — your scrollback is unchanged and all findings are preserved.",
-		elided, saved/1000)}}
 }
 
 // ensureBrief injects the stage's instruction message the first time we enter
@@ -645,9 +597,13 @@ func (e *Engine) ensureBrief() []Line {
 		if len(e.pbs) == 0 { // safety: no playbook yet
 			return nil
 		}
+		if e.mission != nil {
+			return nil // the crew investigates; the captain isn't briefed to
+		}
 		e.appendUser(investigateBrief(e.pbs, e.inv.Snapshot().Objectives, e.sess.Project.Kind, e.sess.Mode, e.sess.VulnFocus))
 	case stageSynthesize:
 		brief := synthesizeBrief(e.sess.Mode, e.pbs, e.inv.Snapshot())
+		brief += e.missionBrief()
 		if e.reportPrefs != "" {
 			brief += "\n\n★ ANALYST REPORT DIRECTIVE — AUTHORITATIVE, overrides the default structure/tone/depth above. Match the title, audience, depth, and tone exactly as specified; if they asked for deep technical detail, err on the side of MORE detail and longer prose:\n" + e.reportPrefs
 		}

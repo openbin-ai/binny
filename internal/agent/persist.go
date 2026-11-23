@@ -5,7 +5,9 @@ import (
 
 	"openbin.ai/binny/internal/api"
 	"openbin.ai/binny/internal/app"
+	"openbin.ai/binny/internal/experience"
 	"openbin.ai/binny/internal/llm"
+	"openbin.ai/binny/internal/mission"
 	"openbin.ai/binny/internal/playbook"
 	"openbin.ai/binny/internal/tools"
 )
@@ -30,6 +32,36 @@ type EngineState struct {
 	Investigation    *Investigation `json:"investigation"`
 	Pending          *PendingState  `json:"pending,omitempty"`
 	Sample           *api.Sample    `json:"sample,omitempty"` // active extra sample at snapshot time
+
+	// Mission state, so a resume lands back mid-mission: the mission (with any
+	// steps the captain added), where it is, each working crew member's
+	// conversation, and the log with per-step spend.
+	Mission  *mission.Mission  `json:"mission,omitempty"`
+	Resolved bool              `json:"missionResolved,omitempty"`
+	StepIdx  int               `json:"stepIdx,omitempty"`
+	Crew     []CrewRunState    `json:"crew,omitempty"`
+	Log      []StepRecord      `json:"missionLog,omitempty"`
+	Steer    string            `json:"steer,omitempty"`
+	Added    int               `json:"addedSteps,omitempty"`
+	Reviewed bool              `json:"reviewed,omitempty"`
+	Lessons  []experience.Note `json:"lessons,omitempty"`
+}
+
+// CrewRunState is one working crew member's loop, as persisted.
+type CrewRunState struct {
+	Step     mission.Step  `json:"step"`
+	StepNo   int           `json:"stepNo"`
+	Rec      int           `json:"rec"`
+	Messages []llm.Message `json:"messages"`
+	Used     int           `json:"used"`
+	Turns    int           `json:"turns"`
+	Budget   int           `json:"budget"`
+	MaxTurns int           `json:"maxTurns"`
+	Scope    []string      `json:"scope,omitempty"`
+	Nudged   bool          `json:"nudged,omitempty"`
+	Interim  bool          `json:"interim,omitempty"`
+	PauseEnd bool          `json:"pauseEnd,omitempty"`
+	Parallel bool          `json:"parallel,omitempty"`
 }
 
 // PendingState mirrors a suspended ask (ask_user or the Collaborative report
@@ -66,6 +98,21 @@ func (e *Engine) State() EngineState {
 	}
 	if e.tb != nil {
 		st.Sample = e.tb.ActiveSample()
+	}
+	if e.mission != nil {
+		st.Mission, st.Resolved, st.StepIdx = e.mission, e.resolved, e.stepIdx
+		st.Log, st.Steer, st.Added, st.Reviewed, st.Lessons = e.log, e.steer, e.added, e.reviewed, e.lessons
+		for _, cr := range e.active {
+			if cr.done {
+				continue
+			}
+			st.Crew = append(st.Crew, CrewRunState{
+				Step: cr.st, StepNo: cr.stepNo, Rec: cr.rec, Messages: cr.messages,
+				Used: cr.used, Turns: cr.turns, Budget: cr.budget, MaxTurns: cr.maxTurns,
+				Scope: cr.scope, Nudged: cr.nudged, Interim: cr.interim, PauseEnd: cr.pauseEnd,
+				Parallel: len(e.active) > 1,
+			})
+		}
 	}
 	if e.pending != nil {
 		st.Pending = &PendingState{
@@ -137,6 +184,8 @@ func RestoreEngine(sess *app.Session, client *api.Client, st EngineState) (*Engi
 	} else if len(inv.MalwareTypes) > 0 {
 		e.pbs = playbook.SelectByTypes(inv.MalwareTypes)
 	}
+	e.SetExperience(experience.All())
+	e.restoreMission(st)
 	if st.Pending != nil {
 		e.pending = &pendingAsk{
 			kind:         askKind(st.Pending.Kind),
@@ -146,4 +195,42 @@ func RestoreEngine(sess *app.Session, client *api.Client, st EngineState) (*Engi
 		}
 	}
 	return e, inv, nil
+}
+
+// restoreMission rehydrates the mission and the crew that were at work. A
+// crew member whose role or model can no longer be resolved is dropped (its
+// findings are already in the investigation) rather than failing the resume.
+func (e *Engine) restoreMission(st EngineState) {
+	if st.Mission == nil {
+		return
+	}
+	e.mission = st.Mission
+	e.ensureCrewTools()
+	e.resolved, e.stepIdx = st.Resolved, st.StepIdx
+	e.log, e.steer, e.added, e.reviewed, e.lessons = st.Log, st.Steer, st.Added, st.Reviewed, st.Lessons
+	for _, c := range st.Crew {
+		role, ok := RoleByID(c.Step.RoleID)
+		if !ok || c.Rec >= len(e.log) {
+			continue
+		}
+		view := role.view(e.reg, e.crewTools)
+		if c.Parallel {
+			view = view.Without(AskUserToolName, "switch_sample", "decompile_sample")
+		}
+		provider, model, err := e.providerFor(c.Step.Model)
+		if err != nil {
+			e.log[c.Rec].Status, e.log[c.Rec].Reason = "stopped", "its model was unavailable on resume: "+err.Error()
+			continue
+		}
+		e.active = append(e.active, &crewRun{
+			Runner: &Runner{
+				role: &role, system: crewSystem(e.system, role), reg: view,
+				messages: c.Messages, used: c.Used, turns: c.Turns,
+				compactThreshold: e.compactThreshold,
+			},
+			st: c.Step, stepNo: c.StepNo, rec: c.Rec, budget: c.Budget, maxTurns: c.MaxTurns,
+			model: model, provider: provider, scope: c.Scope, nudged: c.Nudged,
+			interim: c.Interim, pauseEnd: c.PauseEnd,
+		})
+	}
 }

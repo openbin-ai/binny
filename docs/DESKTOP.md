@@ -19,7 +19,7 @@ The defining property is **fully offline / air-gapped**:
 - **The model can be local** — `internal/llm` already speaks to Ollama / LM Studio
   (`openai.go:132` handles keyless local servers; `catalog.go` lists `/v1/models`).
 
-> **The pitch: "Your malware never leaves your machine."** Analysts and vuln
+> **The pitch: "Your sample never leaves your machine."** Analysts and vuln
 > researchers often legally/contractually cannot upload samples or decompiled
 > code to a cloud API. A 100%-offline agent is the differentiator.
 
